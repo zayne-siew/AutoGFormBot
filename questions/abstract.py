@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Abstract base class (ABC) for Google Form questions.
+Abstract base classes (ABCs) for Google Form questions.
 
 This script serves as an interface for documenting function implementation.
 
@@ -12,7 +12,7 @@ TODO include dependencies
 
 from abc import ABC, abstractmethod
 from selenium.webdriver.remote.webelement import WebElement
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 
 class AbstractQuestion(ABC):
@@ -21,22 +21,22 @@ class AbstractQuestion(ABC):
     # region Getter methods
 
     @abstractmethod
-    def _get_question_element(self) -> WebElement:
+    def _get_question_element(self) -> Optional[WebElement]:
         """Gets the web element which represents the entire question."""
         pass
 
     @abstractmethod
-    def get_header(self) -> str:
+    def get_header(self) -> Optional[str]:
         """Gets the question header."""
         pass
 
     @abstractmethod
-    def get_description(self) -> str:
+    def get_description(self) -> Optional[str]:
         """Gets the question description."""
         pass
 
     @abstractmethod
-    def is_required(self) -> bool:
+    def is_required(self) -> Optional[bool]:
         """Checks if the question is required."""
         pass
 
@@ -55,12 +55,12 @@ class AbstractQuestion(ABC):
         pass
 
     @abstractmethod
-    def _set_question_element(self, element: WebElement) -> None:
+    def set_question_element(self, element: WebElement) -> None:
         """Sets the web element representing the entire question if it has changed."""
         pass
 
     @abstractmethod
-    def _set_answer_elements(self, *args, **kwargs) -> None:
+    def set_answer_elements(self, *args, **kwargs) -> None:
         """Sets the web elements required for answering the question if it has changed."""
         pass
 
@@ -77,8 +77,8 @@ class AbstractQuestion(ABC):
     # endregion Setter methods
 
     @abstractmethod
-    def _is_valid(self, element: WebElement) -> bool:
-        """Check if the web element is still valid."""
+    def _is_valid(self, *elements: WebElement) -> bool:
+        """Check if the web element(s) is/are still valid."""
         pass
 
     @abstractmethod
@@ -87,8 +87,50 @@ class AbstractQuestion(ABC):
         pass
 
     @abstractmethod
-    def answer(self, *args, **kwargs) -> Tuple[WebElement, Optional[Union[str, WebElement]], Optional[str]]:
+    def answer(self, *args, **kwargs) -> Optional[bool]:
         """Provide instruction to answer the question."""
+        pass
+
+
+class AbstractOptionQuestion(ABC):
+    """AbstractOptionQuestion class as ABC for custom Google Form question classes which offer options."""
+
+    # region Getter methods
+
+    @abstractmethod
+    def get_options(self) -> Optional[Tuple[str, ...]]:
+        """Gets a list of all possible options."""
+        pass
+
+    @abstractmethod
+    def get_other_option_element(self) -> Optional[WebElement]:
+        """Gets the web element for the other option input field."""
+        pass
+
+    # endregion Getter methods
+
+    # region Setter methods
+
+    @abstractmethod
+    def _set_options(self, *options: str) -> None:
+        """Sets the list of options provided if it has changed."""
+        pass
+
+    @abstractmethod
+    def set_other_option_element(self, element: WebElement) -> None:
+        """Sets the other option element if it has changed."""
+        pass
+
+    # endregion Setter methods
+
+    @abstractmethod
+    def _is_option(self, option: str) -> bool:
+        """Check if the option is specified."""
+        pass
+
+    @abstractmethod
+    def _has_other_option(self) -> bool:
+        """Check if there is an 'Other' option specified."""
         pass
 
 

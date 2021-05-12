@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Handler for Google Form short-answer questions (textboxes).
+Handler for Google Form long-answer questions (paragraphs).
 
-This script allows for the standardised handling of the Google Form short-answer questions.
+This script allows for the standardised handling of the Google Form long-answer questions.
 
 Usage:
-    To get question metadata while checking for success/failure: if not SAQuestion.get_info(): ...
-    To answer the question: SAQuestion.answer(answer)
+    To get question metadata while checking for success/failure: if not LAQuestion.get_info(): ...
+    To answer the question: LAQuestion.answer(answer)
 
 TODO include dependencies
 """
@@ -22,9 +22,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 _logger = logging.getLogger(__name__)
 
 
-class SAQuestion(BaseQuestion):
+class LAQuestion(BaseQuestion):
     """
-    SAQuestion class as a Google Form short-answer question wrapper.
+    LAQuestion class as a Google Form long-answer question wrapper.
 
     This script caches the text input field used for answering and awaits user input to submit.
 
@@ -38,18 +38,18 @@ class SAQuestion(BaseQuestion):
     """
 
     # Define constants
-    _SAQ_CLASS_NAME = "quantumWizTextinputPaperinputInput"
+    _PARA_CLASS_NAME = "quantumWizTextinputPapertextareaInput"
 
     # region Getters and Setters
 
     @classmethod
     def get_class_name(cls) -> str:
-        """Helper function to get the textbox web element class name.
+        """Helper function to get the paragraph web element class name.
 
-        :return: The textbox web element class name.
+        :return: The paragraph web element class name.
         """
 
-        return cls._SAQ_CLASS_NAME
+        return cls._PARA_CLASS_NAME
 
     def get_answer_elements(self) -> Optional[WebElement]:
         """Gets the web element for the textbox input field.
@@ -58,7 +58,7 @@ class SAQuestion(BaseQuestion):
         """
 
         if not self._ANSWER_ELEMENTS:
-            _logger.warning("SAQuestion trying to get answer element that has not been set")
+            _logger.warning("LAQuestion trying to get answer element that has not been set")
         return self._ANSWER_ELEMENTS
 
     def set_answer_elements(self, element: WebElement) -> None:
@@ -85,7 +85,7 @@ class SAQuestion(BaseQuestion):
             return result
 
         # Obtain the answer element
-        self.set_answer_elements(self._QUESTION_ELEMENT.find_element_by_class_name(self._SAQ_CLASS_NAME))
+        self.set_answer_elements(self._QUESTION_ELEMENT.find_element_by_class_name(self._PARA_CLASS_NAME))
         return True
 
     def answer(self, text: str) -> Optional[bool]:
@@ -96,6 +96,7 @@ class SAQuestion(BaseQuestion):
                  and None if _perform_submission returns None.
         """
 
+        # Sanity check
         if not (bool(self.get_answer_elements()) and self._is_valid(self._ANSWER_ELEMENTS)):
             result = self.get_info()
             if not result:
