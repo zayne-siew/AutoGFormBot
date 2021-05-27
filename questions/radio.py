@@ -98,7 +98,9 @@ class RadioQuestion(BaseOptionQuestion):
             return result
 
         # Obtain options and their corresponding elements
-        elements = self._QUESTION_ELEMENT.find_elements_by_class_name(self._RADIO_CLASS_NAME)
+        container = self._QUESTION_ELEMENT.find_element_by_class_name(BaseOptionGridQuestion.get_container_class()) \
+            if isinstance(self, BaseOptionGridQuestion) else self._QUESTION_ELEMENT
+        elements = container.find_elements_by_class_name(self._RADIO_CLASS_NAME)
         option_elements, options = [], []
         for element in elements:
             option = element.get_attribute("aria-label")

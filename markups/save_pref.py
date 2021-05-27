@@ -5,53 +5,90 @@ Handler for save preference inline keyboard markup.
 The Telegram bot uses this keyboard markup to ask user for global/local save preferences.
 
 Usage:
-    To initialise a save preference keyboard markup: markups.save_pref.init()
-    To verify callback data is from this markup instance: markups.save_pref.verify(callback_data)
-    To verify callback data is from an option selected: markups.save_pref.verify(callback_data, option)
-    To get option data from callback data: markups.save_pref.get_data(callback_data)
+    To obtain the pattern regex for CallbackQueryHandlers: SavePrefMarkup.get_pattern()
+    To initialise a save preference keyboard markup: markup.get_markup()
+    To verify if an option is defined: SavePrefMarkup.is_option(option)
+    To check which pre-defined option is selected: option == SavePrefMarkup.get_save_always() OR
+                                                   option == SavePrefMarkup.get_never_save() OR
+                                                   option == SavePrefMarkup.get_ask_again()
 
 TODO include dependencies
 """
 
 from markups.base import BaseMarkup
-import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-# Set up logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-_logger = logging.getLogger(__name__)
-
-# Define constants
-_SAVE_ALWAYS = "ALWAYS Save"
-_NEVER_SAVE = "NEVER Save"
-_ASK_AGAIN = "Always ASK Me First"
+from telegram import InlineKeyboardMarkup
 
 
 class SavePrefMarkup(BaseMarkup):
     """SavePrefMarkup class for save preference inline keyboard.
 
     Attributes
-        _SIGNATURE  The signature of the function that instantiated the markup.
         _OPTIONS    The options provided on the inline keyboard.
     """
 
-    def init(self) -> InlineKeyboardMarkup:
+    # Define constants
+    _SAVE_ALWAYS = "ALWAYS Save"
+    _NEVER_SAVE = "NEVER Save"
+    _ASK_AGAIN = "Always ASK Me First"
+
+    # region Get constants
+
+    @classmethod
+    def get_save_always(cls) -> str:
+        """Gets the save always constant.
+
+        :return: The save always constant.
+        """
+
+        return cls._SAVE_ALWAYS
+
+    @classmethod
+    def get_never_save(cls) -> str:
+        """Gets the never save constant.
+
+        :return: The never save constant.
+        """
+
+        return cls._NEVER_SAVE
+
+    @classmethod
+    def get_ask_again(cls) -> str:
+        """Gets the ask again constant.
+
+        :return: The ask again constant.
+        """
+
+        return cls._ASK_AGAIN
+
+    # endregion Get constants
+
+    @classmethod
+    def get_pattern(cls, *_) -> str:
+        """Gets the pattern regex for matching in ConversationHandler.
+
+        :return: The pattern regex.
+        """
+
+        return super().get_pattern(cls._SAVE_ALWAYS, cls._NEVER_SAVE, cls._ASK_AGAIN)
+
+    @classmethod
+    def is_option(cls, option: str) -> bool:
+        """Checks if the option parsed is defined.
+
+        :param option: The option parsed.
+        :return: Whether the option is defined.
+        """
+
+        return option in (cls._SAVE_ALWAYS, cls._NEVER_SAVE, cls._ASK_AGAIN)
+
+    def get_markup(self, *_) -> InlineKeyboardMarkup:
         """Sets the save preference options to the markup.
 
         :return: The inline keyboard markup.
         """
 
-        self.set_options(_SAVE_ALWAYS, _NEVER_SAVE, _ASK_AGAIN)
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ {}".format(_SAVE_ALWAYS),
-                                     callback_data=self._format_callback_data(_SAVE_ALWAYS)),
-                InlineKeyboardButton("❌ {}".format(_NEVER_SAVE),
-                                     callback_data=self._format_callback_data(_NEVER_SAVE))
-            ],
-            [InlineKeyboardButton("❓ {} ❓".format(_ASK_AGAIN), callback_data=self._format_callback_data(_ASK_AGAIN))]
-        ]
-        return InlineKeyboardMarkup(keyboard)
+        return super().get_markup(("✅ {}".format(self._SAVE_ALWAYS), "❌ {}".format(self._NEVER_SAVE)),
+                                  "❓ {} ❓".format(self._ASK_AGAIN))
 
 
 if __name__ == '__main__':

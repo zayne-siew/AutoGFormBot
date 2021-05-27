@@ -70,8 +70,9 @@ class BaseQuestion(AbstractQuestion):
         """
 
         return super().__repr__() + \
-            ": header={}, description={}, required={}, question_element={}, answer_elements={}" \
-            .format(self._HEADER, self._DESCRIPTION, self._REQUIRED, self._QUESTION_ELEMENT, self._ANSWER_ELEMENTS)
+            ": header={}, description={}, required={}, question_element={}, answer_elements={}, browser={}" \
+            .format(self._HEADER, self._DESCRIPTION, self._REQUIRED, repr(self._QUESTION_ELEMENT),
+                    repr(self._ANSWER_ELEMENTS), repr(self._BROWSER))
 
     def __str__(self) -> str:
         """Overriden __str__ of BaseQuestion class.
@@ -84,13 +85,15 @@ class BaseQuestion(AbstractQuestion):
     def __eq__(self, other: "BaseQuestion") -> bool:
         """Overriden __eq__ of BaseQuestion class.
 
-        Two BaseQuestion classes are equal if their headers are equal.
+        Two BaseQuestion classes are equal if their Browser objects are equal
+        and their relevant metadata (namely, header, description and required flag) are equal.
 
         :param other: The other instance of the BaseQuestion class.
         :return: Whether the two instances are equal.
         """
 
-        return self._HEADER == other.get_header()
+        return self._BROWSER == other._BROWSER and self._HEADER == other._HEADER \
+            and self._DESCRIPTION == other._DESCRIPTION and self._REQUIRED == other._REQUIRED
 
     # endregion Constructors
 
@@ -370,7 +373,7 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
         """
 
         return BaseQuestion.__repr__(self) + ": options={}, other_option_element={}, other_option_label={}" \
-            .format(self._OPTIONS, self._OTHER_OPTION_ELEMENT, self._OTHER_OPTION_LABEL)
+            .format(self._OPTIONS, repr(self._OTHER_OPTION_ELEMENT), self._OTHER_OPTION_LABEL)
 
     def __str__(self) -> str:
         """Overriden __str__ of BaseOptionQuestion class.
@@ -379,6 +382,18 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
         """
 
         return "{} object with options: {}".format(self.__class__.__name__, self._OPTIONS)
+
+    def __eq__(self, other: "BaseOptionQuestion") -> bool:
+        """Overriden __eq__ of BaseOptionQuestion class.
+
+        Two BaseOptionQuestion classes are equal if their BaseQuestion superclasses are equal
+        and their options are equal.
+
+        :param other: The other instance of the BaseOptionQuestion class.
+        :return: Whether the two instances are equal.
+        """
+
+        return super().__eq__(other) and self._OPTIONS == other._OPTIONS
 
     # endregion Constructors
 
@@ -481,8 +496,18 @@ class BaseOptionGridQuestion(BaseOptionQuestion):
     # Define constants
     _DELIMITER = ", response for "
     _REGEX = "^([\\w|\\s]+)(, response for )([\\w|\\s]+)$"
+    _CONTAINER = "freebirdFormviewerComponentsQuestionGridScrollContainer"  # To obtain options from
 
     # region Getter methods
+
+    @classmethod
+    def get_container_class(cls) -> str:
+        """Helper function to obtain the class name for the grid options container.
+
+        :return: The class name for the grid options container.
+        """
+
+        return cls._CONTAINER
 
     def _get_from_formatted_options(self, get_sub_questions: bool) -> Optional[Tuple[str, ...]]:
         """Helper function to get options or sub-questions from the formatted aria labels.

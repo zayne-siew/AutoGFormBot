@@ -7,17 +7,16 @@ These two options are (usually) opposites and are normally the only two appropri
 This script standardises the initialisation of a generic true/false inline keyboard.
 
 Usage:
-    To initialise a true/false keyboard markup: markups.true_false.init(pos, neg)
-    To verify callback data is from this markup instance: markups.true_false.verify(callback_data)
-    To verify callback data is from an option selected: markups.true_false.verify(callback_data, option)
-    To get option data from callback data: markups.true_false.verify(callback_data, get_options()[0])
+    To obtain the pattern regex for CallbackQueryHandlers: TFMarkup.get_pattern()
+    To initialise a true/false keyboard markup: markup.get_markup(pos, neg)
+    To determine true/false: TFMarkup.confirm(value)
 
 TODO include dependencies
 """
 
 from markups.base import BaseMarkup
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardMarkup
 from typing import Optional
 
 # Set up logging
@@ -29,11 +28,58 @@ class TFMarkup(BaseMarkup):
     """TFMarkup class for custom true/false inline keyboard.
 
     Attributes
-        _SIGNATURE  The signature of the function that instantiated the markup.
         _OPTIONS    The options provided on the inline keyboard.
     """
 
-    def init(self, pos: Optional[str] = "YES", neg: Optional[str] = "NO") -> InlineKeyboardMarkup:
+    # Define constants
+    _TRUE = "True"
+    _FALSE = "False"
+
+    # region Get constants
+
+    @classmethod
+    def get_true(cls) -> str:
+        """Gets the TRUE constant.
+
+        :return: The TRUE constant.
+        """
+
+        return cls._TRUE
+
+    @classmethod
+    def get_false(cls) -> str:
+        """Gets the FALSE constant.
+
+        :return: The FALSE constant.
+        """
+
+        return cls._FALSE
+
+    # endregion Get constants
+
+    @classmethod
+    def get_pattern(cls, *_) -> str:
+        """Gets the pattern regex for matching in ConversationHandler.
+
+        :return: The pattern regex.
+        """
+
+        return super().get_pattern(cls._TRUE, cls._FALSE)
+
+    @classmethod
+    def confirm(cls, value: str) -> Optional[bool]:
+        """Checks if the data is True or False.
+
+        :param value: The value of the callback data parsed.
+        :return: True if the value is True, False if the value is False, and None otherwise.
+        """
+
+        if value == cls._TRUE:
+            return True
+        elif value == cls._FALSE:
+            return False
+
+    def get_markup(self, pos: Optional[str] = "YES", neg: Optional[str] = "NO") -> InlineKeyboardMarkup:
         """Sets true/false values to the markup.
 
         :param pos: The positive confirmation value.
@@ -41,21 +87,13 @@ class TFMarkup(BaseMarkup):
         :return: The inline keyboard markup.
         """
 
-        # Sanity check
-        if not (pos and neg):
-            _logger.warning("TFMarkup init pos=%s, neg=%s", pos, neg)
-        elif pos == neg:
-            _logger.warning("TFMarkup init with both pos and neg = %s, you sure?", pos)
-
-        # Return markup
-        self.set_options(pos, neg)
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ {}".format(pos), callback_data=self._format_callback_data(pos)),
-                InlineKeyboardButton("❌ {}".format(neg), callback_data=self._format_callback_data(neg))
-            ]
-        ]
-        return InlineKeyboardMarkup(keyboard)
+        if pos == neg:
+            _logger.warning("TFMarkup pos=%s, neg=%s", pos, neg)
+        return super().get_markup(("✅ {}".format(pos), "❌ {}".format(neg)),
+                                  option_datas={
+                                      "✅ {}".format(pos): self._TRUE,
+                                      "❌ {}".format(neg): self._FALSE
+                                  })
 
 
 if __name__ == '__main__':

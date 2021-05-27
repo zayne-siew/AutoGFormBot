@@ -16,16 +16,21 @@ TODO include dependencies
 from browser import Browser
 from collections import deque
 import logging
-from questions.base import BaseQuestion, BaseOptionGridQuestion
-from questions.checkbox import CheckboxQuestion, CheckboxGridQuestion
-from questions.datetime import DatetimeQuestion
-from questions.date import DateQuestion
-from questions.dropdown import DropdownQuestion
-from questions.duration import DurationQuestion
-from questions.paragraph import LAQuestion
-from questions.radio import RadioQuestion, RadioGridQuestion
-from questions.textbox import SAQuestion
-from questions.time import TimeQuestion
+from questions import (
+    BaseQuestion,
+    BaseOptionGridQuestion,
+    CheckboxQuestion,
+    CheckboxGridQuestion,
+    DateQuestion,
+    DatetimeQuestion,
+    DropdownQuestion,
+    DurationQuestion,
+    LAQuestion,
+    RadioQuestion,
+    RadioGridQuestion,
+    SAQuestion,
+    TimeQuestion
+)
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.remote.webelement import WebElement
 from typing import Optional, Sequence, Tuple, Union
@@ -56,15 +61,15 @@ class FormProcessor(object):
 
     # region Constructors
 
-    def __init__(self, link: str) -> None:
+    def __init__(self, link: str, headless: Optional[bool] = False) -> None:
         """Initalisation of the FormProcessor object.
 
         :param link: The Google form link used by the FormProcessor.
+        :param headless: Flag to indicate if the browser should run headless.
         """
 
         # Initialise all variables
-        # self._BROWSER = Browser(link, headless=True)
-        self._BROWSER = Browser(link)
+        self._BROWSER = Browser(link, headless=headless)
         self._CURRENT = None
         self._QUESTIONS = deque()
 
@@ -99,11 +104,16 @@ class FormProcessor(object):
         :param questions: The web elements representating the questions obtained for storing.
         """
 
-        if len(set(questions)) != len(questions):
+        # Sanity checks
+        if len(questions) == 0:
+            _logger.warning("FormProcessor trying to add questions but none specified")
+            return
+        elif len(set(questions)) != len(questions):
             # There should not be a duplicate, log for debugging
             _logger.warning("FormProcessor trying to append duplicate question web elements, questions=%s", questions)
             seen = set()
             questions = [question for question in questions if not (question in seen or seen.add(question))]
+
         self._QUESTIONS.extend(questions)
 
     def _clear_questions(self) -> None:
@@ -361,30 +371,35 @@ class FormProcessor(object):
         if result:
             return questions[len(questions)-len(self._QUESTIONS)-1]
 
-    def get_question(self, start: Optional[bool] = False) -> Optional[BaseQuestion]:
+    def get_question(self, start: Optional[bool] = False) -> Union[bool, BaseQuestion]:
         """Obtains the next question in the Google Form.
 
         This function retrieves the next unanswered question in the Google Form as a question instance.
 
         :param start: Flag to indicate if the Google Form has just begun processing.
         :return: The question instance of the next unanswered question if all has been processed successfully,
-                 None if an error was encountered during the processing.
+                 True if the form has been successfully submitted,
+                 and False if an error was encountered during _get_next_section or refresh_section.
         """
 
-        def _try_next_section() -> Optional[WebElement]:
+        def _try_next_section() -> Union[bool, WebElement]:
             """Helper function to obtain the next question of the next section of the Google Form.
 
-            :return: The next question obtained.
+            :return: The next question obtained if a question element is obtained,
+                     True if the form has been successfully submitted,
+                     and False if an error was encountered during _get_next_section.
             """
 
             # Sanity check for questions
             questions = self._get_next_section(not start)
             if not questions:
-                return
+                # questions = [] if form has been submitted, else questions = None
+                return isinstance(questions, Sequence)
 
             # Cache questions
             self._add_questions(*questions)
-            return self._get_next_question()
+            result = self._get_next_question()
+            return False if not result else result
 
         # Get the next question
         # If no questions found, crawl for more questions
@@ -393,8 +408,8 @@ class FormProcessor(object):
             question = self._get_next_question()
         if not question:
             question = _try_next_section()
-            if not question:
-                return
+            if isinstance(question, bool):
+                return question
 
         # Create question instance from obtained question web element
         self._CURRENT = self._get_question_info(question)
@@ -402,7 +417,7 @@ class FormProcessor(object):
             # Something went wrong, refresh and try again
             question = self.refresh_section()
             if not question:
-                return question
+                return False
             self._CURRENT = self._get_question_info(question)
         return self._CURRENT
 
@@ -493,9 +508,8 @@ if __name__ == '__main__':
     form_url = "https://forms.gle/DwmmfPHGhkNsAVBc9"  # Personal test form
     # form_url = "https://docs.google.com/forms/d/e/1FAIpQLScssy2a0OGntW8n_1NpL9AGs1rOntVQiUk3W7uDbJyddT7W1w/viewform"
     processor = FormProcessor(form_url)
-
     question = processor.get_question(True)
-    while question:
+    while isinstance(question, BaseQuestion):
 
         # Process each question
         result = question.get_info()
@@ -533,9 +547,8 @@ if __name__ == '__main__':
                 # question.answer_question() will call get_info() to refresh the answer elements
 
             # Obtain user input
-            # Assume answer to be in the format of:
-            #     "<answer_1>;<answer_2>;...;skip=True"
-            # where "skip=True" tells the script to skip the question
+            # Use "skip=True" to skip a question,
+            # and "<answer>;<answer>;..." to denote multiple answers
             answers = None
             if isinstance(question, BaseOptionGridQuestion):
                 answers = []
@@ -551,7 +564,6 @@ if __name__ == '__main__':
                     answers = tuple(answers.split(";"))
 
             # Answer the question
-            # TODO Return different things for errors and invalid inputs
             if "skip=True" in answers:
                 result = processor.answer_question(skip=True)
             elif isinstance(answers, Tuple):

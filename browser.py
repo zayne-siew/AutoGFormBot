@@ -121,13 +121,15 @@ class Browser(object):
     def __eq__(self, other: "Browser") -> bool:
         """Overriden __eq__ of Browser class.
 
-        Two Browser class instances are equal if their selenium browser instances are equal.
+        Two Browser class instances are equal if their attributes are equal.
 
         :param other: The other Browser instance to compare.
         :return: Whether the two instances are equal.
         """
 
-        return self.get_browser() == other.get_browser()
+        return self._LINK == other._LINK and self._HEADLESS == other._HEADLESS and self._COUNTER == other._COUNTER \
+            and self._MAX_RETRIES == other._MAX_RETRIES and self._TIMEOUT == other._TIMEOUT \
+            and self._IMPLICIT_WAIT == other._IMPLICIT_WAIT
 
     # endregion Constructors
 

@@ -12,35 +12,36 @@ TODO include dependencies
 
 from abc import ABC, abstractmethod
 from telegram import InlineKeyboardMarkup
-from typing import Any, Optional
+from typing import Any, Mapping, Optional, Tuple, Union
 
 
 class AbstractMarkup(ABC):
     """AbstractMarkup class as ABC for custom reusable Telegram inline keyboards."""
 
+    @classmethod
     @abstractmethod
-    def _format_callback_data(self, data: str) -> str:
-        """Prepend the callback data with the signature."""
+    def get_pattern(cls, *datas: str) -> str:
+        """Gets the pattern regex for matching in ConversationHandler."""
         pass
 
     @abstractmethod
-    def _is_option(self, option: str) -> bool:
-        """Checks if the parsed option is stored as a valid option."""
-        pass
-
-    @abstractmethod
-    def init(self, *args: Any, **kwargs: Any) -> InlineKeyboardMarkup:
+    def get_markup(self, *option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
+            -> InlineKeyboardMarkup:
         """Initialises the markup with parsed arguments."""
         pass
 
+
+class AbstractOptionMarkup(ABC):
+    """AbstractOptionMarkup class as ABC for custom reusable option menus as Telegram inline keyboards."""
+
     @abstractmethod
-    def verify(self, callback_data: str, option: Optional[str] = None) -> bool:
-        """Verifies if the callback data came from selecting the option in the markup instance."""
+    def _is_option(self, key: str, option: str) -> bool:
+        """Verify if the option parsed is defined."""
         pass
 
     @abstractmethod
-    def get_data(self, callback_data: str) -> Optional[str]:
-        """Returns the unformatted data from the formatted callback data."""
+    def perform_action(self, option: str) -> Any:
+        """Perform action according to the callback data."""
         pass
 
 

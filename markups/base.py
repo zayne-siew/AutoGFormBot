@@ -5,51 +5,28 @@ Base class for custom reusable Telegram inline keyboards.
 This script standardises the initialisation of a custom reusable inline keyboard.
 
 Usage:
-    To initialise a base keyboard markup: markups.base.init(option_rows)
-    To verify callback data is from this markup instance: markups.base.verify(callback_data)
-    To verify callback data is from an option selected: markups.base.verify(callback_data, option)
-    To get option data from callback data: markups.base.get_data(callback_data)
+    To obtain the pattern regex for CallbackQueryHandlers: BaseMarkup.get_pattern(*datas)
+    To initialise a base keyboard markup: markup.get_markup(*option_rows, option_datas=option_datas)
 
 TODO include dependencies
 """
 
-from markups.abstract import AbstractMarkup
+from markups.abstract import AbstractMarkup, AbstractOptionMarkup
 import logging
+import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from typing import Optional, Tuple, Union
+from typing import Any, Mapping, Optional, Tuple, Union
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 _logger = logging.getLogger(__name__)
 
+# Define constants
+_DEFAULT_LABEL = "DEFAULT_LABEL"
+
 
 class BaseMarkup(AbstractMarkup):
-    """
-    BaseMarkup class for custom reusable Telegram inline keyboards.
-
-    Attributes
-        _SIGNATURE  The signature of the function that instantiated the markup.
-        _OPTIONS    The options provided on the inline keyboard.
-    """
-
-    # region Constructors
-
-    def __init__(self, signature: str) -> None:
-        """Initialisation of BaseMarkup class.
-
-        :param signature: The signature of the method that instantiated the markup.
-        """
-
-        self._SIGNATURE = signature
-        self._OPTIONS = None
-
-    def __repr__(self) -> str:
-        """Overriden __repr__ of BaseMarkup class.
-
-        :return: The __repr__ string.
-        """
-
-        return super().__repr__() + ": signature={}, options={}".format(self._SIGNATURE, self._OPTIONS)
+    """BaseMarkup class for custom reusable Telegram inline keyboards."""
 
     def __str__(self) -> str:
         """Overriden __str__ of BaseMarkup class.
@@ -57,102 +34,32 @@ class BaseMarkup(AbstractMarkup):
         :return: The __str__ string.
         """
 
-        return "{} object with signature {}".format(self.__class__.__name__, self._SIGNATURE)
+        return "{} class instance".format(self.__class__.__name__)
 
-    def __eq__(self, other) -> bool:
-        """Overriden __eq__ of BaseMarkup class.
+    @classmethod
+    def get_pattern(cls, *datas: str) -> str:
+        """Gets the pattern regex for matching in ConversationHandler.
 
-        Two BaseMarkup classes are equal if their signatures are equal.
-
-        :param other: The other instance of the BaseMarkup class.
-        :return: Whether the two instances are equal.
+        :param datas: The callback data(s) to format into pattern regex.
+        :return: The pattern regex.
         """
 
-        return self._SIGNATURE == other.get_signature()
-
-    # endregion Constructors
-
-    # region Getters and Setters
-
-    def get_signature(self) -> str:
-        """Gets the signature of the BaseMarkup instance.
-
-        :return: The signature of the BaseMarkup instance.
-        """
-
-        return self._SIGNATURE
-
-    # region Handling options
-
-    def get_options(self) -> Optional[Tuple[str]]:
-        """Gets the defined options.
-
-        :return: The defined options as a tuple, otherwise None.
-        """
-
-        return self._OPTIONS
-
-    def set_options(self, *options: str) -> None:
-        """Sets the parsed options.
-
-        :param options: The options to set.
-        """
-
-        if len(options) < 1:
-            _logger.warning("%s instance trying to set options with options=%s",
-                            self.__class__.__name__, options)
+        if len(datas) == 0:
+            _logger.warning("%s get_pattern does not accept zero callback data", cls.__name__)
+            return ""
+        elif len(datas) == 1:
+            return "^" + datas[0] + "$"
         else:
-            self._OPTIONS = tuple(options)
+            return "^(" + "|".join(datas) + ")$"
 
-    def _is_option(self, option: str) -> bool:
-        """Check if option is defined in options list.
-
-        :param option: The option to check.
-        :return: Whether the option is defined.
-        """
-
-        return self._OPTIONS and option in self._OPTIONS
-
-    # endregion Handling options
-
-    # endregion Getters and Setters
-
-    def _format_callback_data(self, data: str) -> str:
-        """Prepends the callback data with the signature.
-
-        :param data: The callback data to format.
-        :return: The formatted callback data with the prepended signature.
-        """
-
-        return self._SIGNATURE + " " + data
-
-    def init(self, *option_rows: Union[str, Tuple[str, ...]]) -> InlineKeyboardMarkup:
+    def get_markup(self, *option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
+            -> InlineKeyboardMarkup:
         """Initialises the markup with parsed options.
 
-        The function accepts the options along with its parsed structural formatting,
-        and returns a markup with the defined structure and options.
-
-        The formatting for options is defined as follows:
-        BaseMarkup.init(
-            (
-                row_1_option_1,
-                ...                                     R1O1    R1O2    ...     R1O(M-1)    R1OM
-                row_1_option_M                          R2O1    R2O2    ...     R2O(M-1)    R2OM
-            ),                                                    .                .
-            ...                            --->                   .                .
-            (                                                     .                .
-                row_N_option_1,                         R(N-1)O1        ...             R(N-1)OM
-                ...                                     RNO1    RNO2    ...     RNO(M-1)    RNOM
-                row_N_option_M
-            )
-        )
-
         :param option_rows: The options, along with its formatting.
+        :param option_datas: The callback data to replace the options, if any.
         :return: The inline keyboard markup.
         """
-
-        # Initialise
-        keyboard, options = [], []
 
         def _add_option(option: str) -> InlineKeyboardButton:
             """Helper function to add option to the keyboard.
@@ -161,55 +68,144 @@ class BaseMarkup(AbstractMarkup):
             :return: The inline keyboard button to add to the keyboard.
             """
 
-            if option in options:
-                # Sanity check
-                _logger.warning("%s init option %s already saved in options, appending duplicate",
-                                self.__class__.__name__, option)
-            options.append(option)
-            return InlineKeyboardButton(option, callback_data=self._format_callback_data(option))
+            # Determine option data
+            if option_datas and option in option_datas.keys():
+                option_data = option_datas.get(option)
+            else:
+                option_data = option
 
+            # Check head and tail of string for emojis
+            # Expecting string format: <EMOJI + " "><Option Data><" " + EMOJI>
+            if not re.match("^\\w$", option_data[0]):
+                assert len(option_data) >= 2
+                option_data = option_data[1:].lstrip()
+            if not re.match("^\\w$", option_data[len(option_data) - 1]):
+                assert len(option_data) >= 2
+                option_data = option_data[:len(option_data) - 1].rstrip()
+
+            return InlineKeyboardButton(option, callback_data=option_data)
+
+        keyboard = []
         for option_row in option_rows:
-
-            # Handle single option as string
             if isinstance(option_row, str):
                 keyboard.append([_add_option(option_row)])
-
-            # Handle multiple options
             else:
                 keyboard.append([_add_option(option) for option in option_row])
-
-        # Finalise
-        self.set_options(*options)
         return InlineKeyboardMarkup(keyboard)
 
-    def verify(self, callback_data: str, option: Optional[str] = None) -> bool:
-        """Verifies if the callback data came from selecting the option in the markup instance.
 
-        :param callback_data: The callback data to verify.
-        :param option: The option that was supposedly selected to verify.
-        :return Flag to indicate whether the callback data contains the markup instance signature.
-                If option is specified, the flag also indicates if the option matches the option data.
+class BaseOptionMarkup(AbstractOptionMarkup, BaseMarkup):
+    """BaseOptionMarkup class for custom option menus as Telegram inline keyboards.
+
+    Attributes
+        _OPTIONS    Defined options available in the options menu.
+    """
+
+    # Define constants
+    _IGNORE = "IGNORE"
+
+    # region Constructors
+
+    def __init__(self, *options: str, label: Optional[str] = _DEFAULT_LABEL, disable_warnings: Optional[bool] = False,
+                 **kw_options: Mapping[str, Union[str, Tuple[str, ...]]]) -> None:
+        """Initialisation of BaseOptionMarkup class.
+
+        :param options: Argument options parsed to be stored.
+        :param label: The label for the argument options to be stored.
+        :param disable_warnings: Flag to indicate if warnings should be disabled.
+        :param kw_options: Keyword-based option dictionary to be stored.
         """
 
-        if option:
-            # Expecting format self._SIGNATURE + " " + data
-            return self._is_option(option) and callback_data == self._format_callback_data(option)
-        else:
-            return self.get_signature() in callback_data
+        # Sanity check
+        if len(options) == 0 and len(kw_options) == 0:
+            if not disable_warnings:
+                _logger.warning("%s instance trying to initialise with no options defined", self.__class__.__name__)
+            self._OPTIONS = {_DEFAULT_LABEL: None}
+            return
+        elif len(options) > 0 and len(kw_options) > 0 and not disable_warnings:
+            _logger.warning("%s instance initialising with both options=%s and kw_options=%s defined",
+                            self.__class__.__name__, options, kw_options)
+        elif len(options) > 0 and not bool(label):
+            if not disable_warnings:
+                _logger.warning("%s instance trying to initialise with options=%s without defining label",
+                                self.__class__.__name__, options)
+            label = _DEFAULT_LABEL
 
-    def get_data(self, callback_data: str) -> Optional[str]:
-        """Returns the unformatted data from the formatted callback data.
+        self._OPTIONS = dict(**kw_options) if len(kw_options) > 0 else \
+            {label: options[0] if len(options) == 1 else options}
 
-        :param callback_data: The formatted callback data to obtain data from.
-        :return: The unformatted data.
+    def __repr__(self) -> str:
+        """Overriden __repr__ of BaseOptionMarkup.
+
+        :return: The __repr__ string.
         """
 
-        if not self.verify(callback_data):
-            # Sanity check
-            _logger.warning("%s get_data callback data does not contain signature!\ncallback_data=%s, signature=%s",
-                            self.__class__.__name__, callback_data, self.get_signature())
+        return BaseMarkup.__repr__(self) + ": options={}".format(repr(self._OPTIONS))
+
+    def __str__(self) -> str:
+        """Overriden __str__ of BaseOptionMarkup.
+
+        :return: The __str__ string.
+        """
+
+        return BaseMarkup.__str__(self) + " with the following options: {}".format(self._OPTIONS)
+
+    # endregion Constructors
+
+    # region Getters
+
+    @classmethod
+    def get_ignore(cls) -> str:
+        """Gets the IGNORE constant.
+
+        :return: The IGNORE constant.
+        """
+
+        return cls._IGNORE
+
+    def get_pattern(self, *keys: str) -> str:
+        """Gets the pattern regex for matching in ConversationHandler.
+
+        :param keys: The key(s) to obtain the options from, for formatting.
+        :return: The pattern regex.
+        """
+
+        if len(keys) == 0:
+            _logger.warning("%s get_pattern does not accept zero parsed keys", self.__class__.__name__)
+            return ""
         else:
-            return callback_data.replace(self.get_signature() + " ", "")
+            return "^(" + "|".join("|".join(self._OPTIONS.get(key, {})) for key in keys) + ")$"
+
+    def get_options(self, key: str) -> Optional[Union[str, Tuple[str, ...]]]:
+        """Gets the options stored, if any.
+
+        :param key: The key to obtain the options from.
+        :return: The options stored, if any.
+        """
+
+        return self._OPTIONS.get(key)
+
+    # endregion Getters
+
+    def _is_option(self, option: str, key: str) -> bool:
+        """Verify if the option parsed is defined.
+
+        :param option: The option to verify.
+        :param key: The key to obtain options from.
+        :return: Flag to indicate if the option is defined.
+        """
+
+        return option in self._OPTIONS.get(key)
+
+    def perform_action(self, option: str) -> Any:
+        """Perform action according to the callback data.
+
+        BaseOptionMarkup does not implement the perform_action function.
+
+        :param option: The option received from the callback data.
+        :return: The relevant result after performing the relevant action.
+        """
+        pass
 
 
 if __name__ == '__main__':
