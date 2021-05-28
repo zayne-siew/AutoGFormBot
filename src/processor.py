@@ -13,10 +13,12 @@ This script uses custom classes as representations of Google Form questions unde
 TODO include dependencies
 """
 
-from browser import Browser
 from collections import deque
 import logging
-from questions import (
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
+from selenium.webdriver.remote.webelement import WebElement
+from src import Browser
+from src.questions import (
     BaseQuestion,
     BaseOptionGridQuestion,
     CheckboxQuestion,
@@ -31,8 +33,6 @@ from questions import (
     SAQuestion,
     TimeQuestion
 )
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-from selenium.webdriver.remote.webelement import WebElement
 from typing import Optional, Sequence, Tuple, Union
 
 # Set up logging
@@ -504,7 +504,7 @@ class FormProcessor(object):
 if __name__ == '__main__':
 
     # TODO DEBUG
-    from questions.base import BaseOptionQuestion
+    from src.questions import BaseOptionQuestion
     form_url = "https://forms.gle/DwmmfPHGhkNsAVBc9"  # Personal test form
     # form_url = "https://docs.google.com/forms/d/e/1FAIpQLScssy2a0OGntW8n_1NpL9AGs1rOntVQiUk3W7uDbJyddT7W1w/viewform"
     processor = FormProcessor(form_url)

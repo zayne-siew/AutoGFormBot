@@ -15,10 +15,10 @@ Usage:
 TODO include dependencies
 """
 
-from browser import Browser
 import logging
-from questions.base import BaseOptionQuestion, BaseOptionGridQuestion
 from selenium.webdriver.remote.webelement import WebElement
+from src import Browser
+from src.questions import BaseOptionQuestion, BaseOptionGridQuestion
 from typing import Optional, Tuple
 
 # Set up logging

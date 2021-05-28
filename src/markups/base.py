@@ -11,9 +11,9 @@ Usage:
 TODO include dependencies
 """
 
-from markups.abstract import AbstractMarkup, AbstractOptionMarkup
 import logging
 import re
+from src.markups import AbstractMarkup, AbstractOptionMarkup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from typing import Any, Mapping, Optional, Tuple, Union
 

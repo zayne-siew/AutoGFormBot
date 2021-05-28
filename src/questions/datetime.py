@@ -12,12 +12,10 @@ Usage:
 TODO include dependencies
 """
 
-from browser import Browser
 import logging
-from questions.base import BaseQuestion
-from questions.date import DateQuestion
-from questions.time import TimeQuestion
 from selenium.webdriver.remote.webelement import WebElement
+from src import Browser
+from src.questions import BaseQuestion, DateQuestion, TimeQuestion
 from typing import Any, Optional, Tuple
 
 # Set up logging

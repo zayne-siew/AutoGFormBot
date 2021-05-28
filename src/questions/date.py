@@ -11,12 +11,12 @@ Usage:
 TODO include dependencies
 """
 
-from browser import Browser
 from calendar import monthrange
 from datetime import datetime
 import logging
-from questions.base import BaseQuestion
 from selenium.webdriver.remote.webelement import WebElement
+from src import Browser
+from src.questions import BaseQuestion
 from typing import Optional, Tuple, Union
 
 # region Define constants

@@ -1,0 +1,12 @@
+# Compiled files
+**/__pycache__
+*.pyc
+*.pyo
+# Project settings
+**/.git
+**/.idea
+# Environment stuff
+**/Lib
+**/Scripts
+*.cfg
+.env
