@@ -14,7 +14,7 @@ import logging
 import re
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.remote.webelement import WebElement
-from src import Browser, utils
+from src import Browser
 from src.questions import AbstractQuestion, AbstractOptionQuestion
 from typing import Any, Optional, Tuple
 
@@ -146,6 +146,15 @@ class BaseQuestion(AbstractQuestion):
             _logger.warning("%s trying to get required flag that has not been set yet", self.__class__.__name__)
         return self._REQUIRED
 
+    def get_pref_key(self) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
+        """Gets the preference key used for saving of answers to this question.
+
+        :return: The preference key, in the following format:
+                 (QUESTION HEADER (if any), QUESTION DESCRIPTION (if any), QUESTION REQUIRED (if any))
+        """
+
+        return self.get_header(), self.get_description(), self.is_required()
+
     def get_answer_elements(self) -> Any:
         """Gets the web elements related to answering of the question.
 
@@ -227,74 +236,6 @@ class BaseQuestion(AbstractQuestion):
         except StaleElementReferenceException:
             return False
 
-    """
-    @Browser.monitor_browser
-    def _perform_submission(self, *instructions: Tuple[WebElement, Optional[Union[str, WebElement]], Optional[str]],
-                            to_pause: Optional[bool] = False) -> Optional[bool]:
-        Simulates realistic submission of answers to Google Form.
-
-        The function makes use of ActionChains actions to emulate a more realistic user-like interaction
-        with the Google Forms, while automating the submission of answers to specified elements.
-
-        :param instructions: Tuples of instructions to chain together and perform.
-                             Each instruction follows the specified format: (ELEMENT, (ELEMENT OR STR), STR),
-                             where ELEMENT is/are element(s) to autoclick and STR is/are answer texts to submit.
-        :param to_pause: Flag to indicate if each action should be performed with appropriate buffer time.
-        :return: True if the action is performed and None if an exception was caught.
-        
-
-        def _click(element: WebElement, to_pause: bool) -> None:
-            Helper function to autoclick a web element.
-
-            :param element: The web element to click.
-            :param to_pause: Flag to indicate if each action should be performed with appropriate buffer time.
-            
-
-            action.move_to_element_with_offset(element, 0, 0).click()
-            if to_pause:
-                # action.pause(self._BROWSER.get_action_buffer())
-                action.pause(5)  # TODO DEBUG
-
-        def _type(text: str, to_pause: bool) -> None:
-            Helper function to autofill text into a web element.
-            
-            Assumes web element has already been selected in the browser.
-
-            :param text: The text to autofill.
-            :param to_pause: Flag to indicate if each action should be performed with appropriate buffer time.
-            
-
-            action.send_keys(text).pause(self._BROWSER.get_action_buffer())
-            if to_pause:
-                action.pause(self._BROWSER.get_action_buffer() + int(len(text) >> 3))
-
-        # Sanity check for instructions
-        if len(instructions) == 0:
-            _logger.warning("%s performing submission with no specified instructions", self.__class__.__name__)
-            return True  # Technically no exception caught
-
-        # Obtain ActionChains
-        action = self._BROWSER.get_action_chains()
-        while not action:
-            if not self._BROWSER.retry_browser():
-                return
-            action = self._BROWSER.get_action_chains()
-
-        print("Instruction received:", instructions)  # TODO DEBUG
-
-        for element, element_or_str, other_str in instructions:
-            _click(element, to_pause)
-            if element_or_str:
-                _click(element_or_str, to_pause) if isinstance(element_or_str, WebElement) else \
-                    _type(element_or_str, to_pause)
-            if other_str:
-                # If other_str is defined, the instruction is to perform the following:
-                # Select 'Other' radio/checkbox option, select 'Other' input field, type in 'Other' input field
-                _type(other_str, to_pause)
-        action.perform()
-        return True
-    """
-
     @Browser.monitor_browser
     def get_info(self) -> Optional[bool]:
         """Obtains question metadata from Google Form.
@@ -348,8 +289,10 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
         _BROWSER                The selenium browser instance used to host the Google Form.
         _OPTIONS                The options defined by the Google Form question.
         _OTHER_OPTION_ELEMENT   The input field for the 'Other' option, if an 'Other' option is defined.
-        _OTHER_OPTION_LABEL     The text to replace the blank aria label for any specified 'Other' options.
     """
+
+    # Define constants
+    _OTHER_OPTION_LABEL = "Other Option"
 
     # region Constructors
 
@@ -363,7 +306,6 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
         BaseQuestion.__init__(self, question_element, browser)
         self._OPTIONS = None
         self._OTHER_OPTION_ELEMENT = None
-        self._OTHER_OPTION_LABEL = utils.generate_random_signatures(1)
 
     def __repr__(self) -> str:
         """Overriden __repr__ of BaseOptionQuestion class.
@@ -371,8 +313,8 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
         :return: The __repr__ string.
         """
 
-        return BaseQuestion.__repr__(self) + ": options={}, other_option_element={}, other_option_label={}" \
-            .format(self._OPTIONS, repr(self._OTHER_OPTION_ELEMENT), self._OTHER_OPTION_LABEL)
+        return BaseQuestion.__repr__(self) + ": options={}, other_option_element={}" \
+            .format(self._OPTIONS, repr(self._OTHER_OPTION_ELEMENT),)
 
     def __str__(self) -> str:
         """Overriden __str__ of BaseOptionQuestion class.
@@ -397,6 +339,15 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
     # endregion Constructors
 
     # region Getter methods
+
+    @classmethod
+    def get_other_option_label(cls) -> str:
+        """Gets the label denoting the 'Other' option specified.
+
+        :return: The label denoting the 'Other' option specified.
+        """
+
+        return cls._OTHER_OPTION_LABEL
 
     def get_options(self) -> Optional[Tuple[str, ...]]:
         """Gets a list of all possible options.
@@ -423,11 +374,11 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
 
     # region Setter methods
 
-    def _set_options(self, *options: str, other_option_label: Optional[str] = None) -> None:
+    def _set_options(self, *options: str, has_other_option: bool) -> None:
         """Sets the list of options provided if it has changed.
 
         :param options: The options provided.
-        :param other_option_label: The label used to denote the 'Other' option.
+        :param has_other_option: Flag to indicate if an 'Other' option is defined.
         """
 
         # Sanity check
@@ -435,13 +386,8 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
             _logger.warning("%s setting options with no options specified", self.__class__.__name__)
             return
 
-        result = []
-        for option in options:
-            if isinstance(other_option_label, str) and option == other_option_label:
-                result.append(self._OTHER_OPTION_LABEL)
-            else:
-                result.append(option)
-        self._OPTIONS = tuple(result)
+        self._OPTIONS = options + (self._OTHER_OPTION_LABEL,) * has_other_option
+        print(self._OPTIONS)  # TODO DEBUG
 
     def set_other_option_element(self, element: WebElement) -> None:
         """Sets the other option element if it has changed.

@@ -27,7 +27,7 @@ class AbstractMarkup(ABC):
     @abstractmethod
     def get_markup(self, *option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
             -> InlineKeyboardMarkup:
-        """Initialises the markup with parsed arguments."""
+        """Initialises the markup with parsed options."""
         pass
 
 
@@ -35,7 +35,7 @@ class AbstractOptionMarkup(ABC):
     """AbstractOptionMarkup class as ABC for custom reusable option menus as Telegram inline keyboards."""
 
     @abstractmethod
-    def _is_option(self, key: str, option: str) -> bool:
+    def _is_option(self, option: str) -> bool:
         """Verify if the option parsed is defined."""
         pass
 

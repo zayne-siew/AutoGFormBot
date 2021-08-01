@@ -118,11 +118,11 @@ class TimeQuestion(BaseQuestion):
         self.set_answer_elements(hour_elements[0], minute_elements[0])
         return True
 
-    def answer(self, hour: str, minute: str) -> Optional[bool]:
+    def answer(self, time: str) -> Optional[bool]:
         """Answers the question with specified user input.
 
-        :param hour: The hour answer to the question.
-        :param minute: The minute answer to the question.
+        :param time: The time answer to the question.
+                     The time answer is expected to be of format "%H:%M".
         :return: True if the question is answered successfully, False if a sanity check fails,
                  and None if _perform_submission returns None.
         """
@@ -136,16 +136,16 @@ class TimeQuestion(BaseQuestion):
 
         # Ensure valid inputs
         try:
-            hour_int, minute_int = int(hour), int(minute)
-            if not (0 <= hour_int <= 23 and 0 <= minute_int <= 59):
+            hour, minute = time.split(":")
+            hour, minute = int(hour), int(minute)
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
                 raise ValueError
         except ValueError:
-            _logger.error("%s trying to answer a time with hour=%s, minute=%s",
-                          self.__class__.__name__, hour, minute)
+            _logger.error("%s trying to answer a time with time=%s", self.__class__.__name__, time)
             return False
+        assert bool(isinstance(val, int) for val in (hour, minute))
 
-        # Instruction: Click the hour input field and enter hour,
-        #              then click the minute input field and enter minute
+        # Send instructions to Google Forms
         for element, answer in zip(self._ANSWER_ELEMENTS, (hour, minute)):
             element.click()
             element.send_keys(answer)

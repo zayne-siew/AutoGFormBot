@@ -113,11 +113,10 @@ class RadioQuestion(BaseOptionQuestion):
 
                 # Check if there is an 'Other' option specified
                 if element.get_attribute("data-value") == self._OTHER_OPTION_DATA_VALUE:
-                    if "" in options:
+                    if self._OTHER_OPTION_ELEMENT:
                         # Sanity check
                         _logger.warning("%s get_info found duplicate 'Other' option", self.__class__.__name__)
                         continue
-                    options.append("")
                     option_elements.append(element)  # Radio button associated with the 'Other' option
                     self.set_other_option_element(self._QUESTION_ELEMENT.find_element_by_class_name(
                         self._OTHER_CLASS_NAME))  # Input field associated with the 'Other' option
@@ -132,7 +131,7 @@ class RadioQuestion(BaseOptionQuestion):
                 option_elements.append(element)
 
         # Finally, cache options and option elements
-        self._set_options(*options, other_option_label="")
+        self._set_options(*options, has_other_option=bool(self._OTHER_OPTION_ELEMENT))
         self.set_answer_elements(*option_elements)
         return True
 

@@ -454,14 +454,6 @@ class FormProcessor(object):
                 _logger.error("FormProcessor answer_question trying to submit answer with no answer provided")
                 return
 
-            # Sanity check for answer length
-            elif (isinstance(self._CURRENT, TimeQuestion) and not len(answers) == 2) or \
-                    (isinstance(self._CURRENT, DurationQuestion) and not len(answers) == 3) or \
-                    (isinstance(self._CURRENT, DateQuestion) and not (len(answers) == 1 or len(answers) == 2)) or \
-                    (isinstance(self._CURRENT, DatetimeQuestion) and not (len(answers) == 3 or len(answers) == 4)):
-                _logger.error("FormProcessor trying to submit %d answers to question %s", len(answers), self._CURRENT)
-                return
-
             # Sanity check for answer type
             elif not isinstance(self._CURRENT, CheckboxGridQuestion):
                 for answer in answers:
@@ -472,26 +464,8 @@ class FormProcessor(object):
 
             # endregion Sanity checks
 
-            # region Submit answer
-
-            result = None
-            # Ugly brute force for DatetimeQuestion and DateQuestion instances
-            if isinstance(self._CURRENT, DatetimeQuestion):
-                if len(answers) == 3:
-                    result = self._CURRENT.answer(answers[0], answers[1], date=answers[2])
-                else:
-                    result = self._CURRENT.answer(answers[0], answers[1], month=answers[2], day=answers[3])
-            elif isinstance(self._CURRENT, DateQuestion):
-                if len(answers) == 1:
-                    result = self._CURRENT.answer(date=answers[0])
-                elif len(answers) == 2:
-                    result = self._CURRENT.answer(month=answers[0], day=answers[1])
-            else:
-                result = self._CURRENT.answer(*answers)
-
-            # endregion Submit answer
-
-            # Check if question is successfully answered
+            # Answer question
+            result = self._CURRENT.answer(*answers)
             if not result:
                 return result
             _logger.info("FormProcessor question has been successfully answered")

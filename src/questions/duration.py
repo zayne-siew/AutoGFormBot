@@ -123,14 +123,13 @@ class DurationQuestion(BaseQuestion):
         )
         return True
 
-    def answer(self, hour: str, minute: str, second: str) -> Optional[bool]:
+    def answer(self, duration: str) -> Optional[bool]:
         """Answers the question with specified user input.
 
         For duration, the maximum number of hours allowed is 72.
 
-        :param hour: The hour answer to the question.
-        :param minute: The minute answer to the question.
-        :param second: The second answer to the question.
+        :param duration: The duration answer to the question.
+                         The duration answer is expected to be of format "%H:%M:%S".
         :return: True if the question is answered successfully, False if a sanity check fails,
                  and None if _perform_submission returns None.
         """
@@ -144,17 +143,16 @@ class DurationQuestion(BaseQuestion):
 
         # Ensure valid inputs
         try:
-            hour_int, minute_int, second_int = int(hour), int(minute), int(second)
-            if not (0 <= hour_int <= 72 and 0 <= minute_int <= 59 and 0 <= second_int <= 59):
+            hour, minute, second = duration.split(":")
+            hour, minute, second = int(hour), int(minute), int(second)
+            if not (0 <= hour <= 72 and 0 <= minute <= 59 and 0 <= second <= 59):
                 raise ValueError
         except ValueError:
-            _logger.error("DurationQuestion trying to answer a duration with hour=%s, minute=%s, second=%s",
-                          hour, minute, second)
+            _logger.error("%s trying to answer a duration with duration=%s", self.__class__.__name__, duration)
             return False
+        assert bool(isinstance(val, int) for val in (hour, minute, second))
 
-        # Instruction: Click the hour input field and enter hour,
-        #              then click the minute input field and enter minute,
-        #              then click the second input field and enter second
+        # Send instructions to Google Forms
         for element, answer in zip(self._ANSWER_ELEMENTS, (hour, minute, second)):
             element.click()
             element.send_keys(answer)

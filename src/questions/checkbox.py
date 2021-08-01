@@ -121,7 +121,6 @@ class CheckboxQuestion(BaseOptionQuestion):
                     # Sanity check
                     _logger.warning("%s get_info found duplicate 'Other' option", self.__class__.__name__)
                     continue
-                options.append(self._OTHER_OPTION_ARIA_LABEL)
                 option_elements.append(element)  # Checkbox associated with the 'Other' option
                 self.set_other_option_element(self._QUESTION_ELEMENT.find_element_by_class_name(
                     self._OTHER_CLASS_NAME))  # Input field associated with the 'Other' option
@@ -132,7 +131,7 @@ class CheckboxQuestion(BaseOptionQuestion):
                 option_elements.append(element)
 
         # Finish initialising
-        self._set_options(*options, other_option_label=self._OTHER_OPTION_ARIA_LABEL)
+        self._set_options(*options, has_other_option=bool(self._OTHER_OPTION_ELEMENT))
         self.set_answer_elements(*option_elements)
         return True
 

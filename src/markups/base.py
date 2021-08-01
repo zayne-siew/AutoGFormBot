@@ -5,8 +5,7 @@ Base class for custom reusable Telegram inline keyboards.
 This script standardises the initialisation of a custom reusable inline keyboard.
 
 Usage:
-    To obtain the pattern regex for CallbackQueryHandlers: BaseMarkup.get_pattern(*datas)
-    To initialise a base keyboard markup: markup.get_markup(*option_rows, option_datas=option_datas)
+    This script should not be used directly, other than its base class functionalities.
 
 TODO include dependencies
 """
@@ -20,9 +19,6 @@ from typing import Any, Mapping, Optional, Tuple, Union
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 _logger = logging.getLogger(__name__)
-
-# Define constants
-_DEFAULT_LABEL = "DEFAULT_LABEL"
 
 
 class BaseMarkup(AbstractMarkup):
@@ -44,13 +40,7 @@ class BaseMarkup(AbstractMarkup):
         :return: The pattern regex.
         """
 
-        if len(datas) == 0:
-            _logger.warning("%s get_pattern does not accept zero callback data", cls.__name__)
-            return ""
-        elif len(datas) == 1:
-            return "^" + datas[0] + "$"
-        else:
-            return "^(" + "|".join(datas) + ")$"
+        return "^(" + "|".join(datas) + ")$"
 
     def get_markup(self, *option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
             -> InlineKeyboardMarkup:
@@ -99,40 +89,26 @@ class BaseOptionMarkup(AbstractOptionMarkup, BaseMarkup):
 
     Attributes
         _OPTIONS    Defined options available in the options menu.
+        _REQUIRED   Flag to indicate if a response is required.
     """
 
     # Define constants
-    _IGNORE = "IGNORE"
+    _SKIP = "SKIP_THIS_QUESTION"
 
     # region Constructors
 
-    def __init__(self, *options: str, label: Optional[str] = _DEFAULT_LABEL, disable_warnings: Optional[bool] = False,
-                 **kw_options: Mapping[str, Union[str, Tuple[str, ...]]]) -> None:
+    def __init__(self, required: bool, *options: str, disable_warnings: Optional[bool] = False) -> None:
         """Initialisation of BaseOptionMarkup class.
 
-        :param options: Argument options parsed to be stored.
-        :param label: The label for the argument options to be stored.
+        :param required: Flag to indicate if a response is required.
+        :param options: Options parsed to be stored.
         :param disable_warnings: Flag to indicate if warnings should be disabled.
-        :param kw_options: Keyword-based option dictionary to be stored.
         """
 
-        # Sanity check
-        if len(options) == 0 and len(kw_options) == 0:
-            if not disable_warnings:
-                _logger.warning("%s instance trying to initialise with no options defined", self.__class__.__name__)
-            self._OPTIONS = {_DEFAULT_LABEL: None}
-            return
-        elif len(options) > 0 and len(kw_options) > 0 and not disable_warnings:
-            _logger.warning("%s instance initialising with both options=%s and kw_options=%s defined",
-                            self.__class__.__name__, options, kw_options)
-        elif len(options) > 0 and not bool(label):
-            if not disable_warnings:
-                _logger.warning("%s instance trying to initialise with options=%s without defining label",
-                                self.__class__.__name__, options)
-            label = _DEFAULT_LABEL
-
-        self._OPTIONS = dict(**kw_options) if len(kw_options) > 0 else \
-            {label: options[0] if len(options) == 1 else options}
+        if len(options) == 0 and not disable_warnings:
+            _logger.warning("%s instance initialising with no options defined", self.__class__.__name__)
+        self._REQUIRED = required
+        self._OPTIONS = options
 
     def __repr__(self) -> str:
         """Overriden __repr__ of BaseOptionMarkup.
@@ -140,7 +116,7 @@ class BaseOptionMarkup(AbstractOptionMarkup, BaseMarkup):
         :return: The __repr__ string.
         """
 
-        return BaseMarkup.__repr__(self) + ": options={}".format(repr(self._OPTIONS))
+        return BaseMarkup.__repr__(self) + ": required={}, options={}".format(self._REQUIRED, repr(self._OPTIONS))
 
     def __str__(self) -> str:
         """Overriden __str__ of BaseOptionMarkup.
@@ -148,54 +124,57 @@ class BaseOptionMarkup(AbstractOptionMarkup, BaseMarkup):
         :return: The __str__ string.
         """
 
-        return BaseMarkup.__str__(self) + " with the following options: {}".format(self._OPTIONS)
+        return BaseMarkup.__str__(self) + " with the following options: {}\nA response is{} required" \
+            .format(self._OPTIONS, " not" * (not self._REQUIRED))
 
     # endregion Constructors
 
     # region Getters
 
     @classmethod
-    def get_ignore(cls) -> str:
-        """Gets the IGNORE constant.
+    def get_skip(cls) -> str:
+        """Gets the SKIP constant.
 
-        :return: The IGNORE constant.
+        :return: The SKIP constant.
         """
 
-        return cls._IGNORE
+        return cls._SKIP
 
-    def get_pattern(self, *keys: str) -> str:
+    @classmethod
+    def get_required_warning(cls) -> str:
+        """Obtain warning string.
+
+        :return: The warning string.
+        """
+
+        return "ALERT: This is a required question."
+
+    def get_pattern(self) -> str:
         """Gets the pattern regex for matching in ConversationHandler.
 
-        :param keys: The key(s) to obtain the options from, for formatting.
         :return: The pattern regex.
         """
 
-        if len(keys) == 0:
-            _logger.warning("%s get_pattern does not accept zero parsed keys", self.__class__.__name__)
-            return ""
-        else:
-            return "^(" + "|".join("|".join(self._OPTIONS.get(key, {})) for key in keys) + ")$"
+        return super().get_pattern(*self._OPTIONS)
 
-    def get_options(self, key: str) -> Optional[Union[str, Tuple[str, ...]]]:
+    def get_options(self) -> Tuple[str, ...]:
         """Gets the options stored, if any.
 
-        :param key: The key to obtain the options from.
         :return: The options stored, if any.
         """
 
-        return self._OPTIONS.get(key)
+        return self._OPTIONS
 
     # endregion Getters
 
-    def _is_option(self, option: str, key: str) -> bool:
+    def _is_option(self, option: str) -> bool:
         """Verify if the option parsed is defined.
 
         :param option: The option to verify.
-        :param key: The key to obtain options from.
         :return: Flag to indicate if the option is defined.
         """
 
-        return option in self._OPTIONS.get(key)
+        return option in self._OPTIONS or option == self._SKIP
 
     def perform_action(self, option: str) -> Any:
         """Perform action according to the callback data.

@@ -220,26 +220,24 @@ class DatetimeQuestion(BaseQuestion):
         # Both get_info() calls passed without error
         return True
 
-    def answer(self, hour: str, minute: str, *, date: Optional[str] = None, month: Optional[str] = None,
-               day: Optional[str] = None) -> Optional[bool]:
+    def answer(self, datetime: str) -> Optional[bool]:
         """Answers the question with specified user input.
 
-        :param hour: Hour for answering the TimeQuestion instance.
-        :param minute: Minute for answering the TimeQuestion instance.
-        :param date: Date for answering the DateQuestion instance.
-        :param month: Month for answering the DateQuestion instance.
-        :param day: Day for answering the DateQuestion instance.
+        :param datetime: Datetime for answering the DateQuestion and TimeQuestion instances.
+                         The datetime is expected to be of format "%Y-%m-%d %H:%M"
         :return: True if the question is answered successfully, False if a sanity check fails,
                  and None if _perform_submission returns None.
         """
 
+        date, time = datetime.split(" ")
+
         # Process DateQuestion.answer()
-        result = self._DATE_QUESTION.answer(date=date, month=month, day=day)
+        result = self._DATE_QUESTION.answer(date)
         if not result:
             return result
 
         # Process TimeQuestion.answer()
-        result = self._TIME_QUESTION.answer(hour, minute)
+        result = self._TIME_QUESTION.answer(time)
         if not result:
             return result
 

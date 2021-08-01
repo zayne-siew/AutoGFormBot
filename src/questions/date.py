@@ -11,7 +11,6 @@ Usage:
 TODO include dependencies
 """
 
-from calendar import monthrange
 from datetime import datetime
 import logging
 from selenium.webdriver.remote.webelement import WebElement
@@ -19,17 +18,9 @@ from src import Browser
 from src.questions import BaseQuestion
 from typing import Optional, Tuple, Union
 
-# region Define constants
-
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 _logger = logging.getLogger(__name__)
-
-# Define date formats
-_INPUT_FORMAT = "%Y %m %d"
-_ANSWER_FORMAT = "%d%m%Y"
-
-# endregion Define constants
 
 
 class DateQuestion(BaseQuestion):
@@ -46,41 +37,12 @@ class DateQuestion(BaseQuestion):
         _QUESTION_ELEMENT   The web element in the Google Form which represents the entire Google Form question.
         _ANSWER_ELEMENTS    The web element(s) in the Google Form which are used to answer the Google Form question.
         _BROWSER            The selenium browser instance used to host the Google Form.
-        _INPUT_FORMAT       The date format expected for date string answers.
-        _ANSWER_FORMAT      The date format to format date string answers to for submission.
     """
 
     # Define constants
     _DATE_TYPE = "date"
     _DAY_ARIA_LABEL = "Day of the month"
     _MONTH_ARIA_LABEL = "Month"
-
-    # region Constructors
-
-    def __init__(self, question_element: WebElement, browser: Browser, input_format: Optional[str] = _INPUT_FORMAT,
-                 answer_format: Optional[str] = _ANSWER_FORMAT) -> None:
-        """Initialisation of DateQuestion class.
-
-        :param question_element: The web element which represents the entire question.
-        :param browser: The selenium browser instance used to host the Google Form.
-        :param input_format: The date format expected for date string answers.
-        :param answer_format: The date format to format date string answers to for submission.
-        """
-
-        super().__init__(question_element, browser)
-        self._INPUT_FORMAT = input_format
-        self._ANSWER_FORMAT = answer_format
-
-    def __repr__(self) -> str:
-        """Overriden __repr__ of DateQuestion class.
-
-        :return: The __repr__ string.
-        """
-
-        return super().__repr__() + ", input_format={}, answer_format={}" \
-            .format(self._INPUT_FORMAT, self._ANSWER_FORMAT)
-
-    # endregion Constructors
 
     # region Getters and Setters
 
@@ -171,19 +133,16 @@ class DateQuestion(BaseQuestion):
             _logger.error("%s no date picker, month or day elements found", self.__class__.__name__)
             return
 
-    def answer(self, *, date: Optional[str] = None, month: Optional[str] = None, day: Optional[str] = None) -> \
-            Optional[bool]:
+    def answer(self, date: str) -> Optional[bool]:
         """Answers the question with specified user input.
 
         :param date: The date answer to the question.
-        :param month: The month answer to the question.
-        :param day: The day answer to the question.
+                     The parsed date is expected to be of format "%Y-%m-%d".
         :return: True if the question is answered successfully, False if a sanity check fails,
                  and None if _perform_submission returns None.
         """
 
-        # region Sanity checks for answer element(s)
-
+        # Sanity checks for answer element(s)
         if (not bool(self.get_answer_elements())) or \
                 (isinstance(self._ANSWER_ELEMENTS, Tuple) and not self._is_valid(*self._ANSWER_ELEMENTS)) or \
                 (isinstance(self._ANSWER_ELEMENTS, WebElement) and not self._is_valid(self._ANSWER_ELEMENTS)):
@@ -192,69 +151,25 @@ class DateQuestion(BaseQuestion):
                 # Cascade unwanted result
                 return result
 
-        # endregion Sanity checks for answer element(s)
+        # Check for valid date string
+        try:
+            date_time = datetime.strptime(date, "%Y-%m-%d")
+            if date_time > datetime(2071, 1, 1):
+                raise ValueError
+            day, month, year = date_time.day, date_time.month, date_time.year
+        except ValueError:
+            _logger.error("%s trying to answer a date with date=%s", self.__class__.__name__, date)
+            return False
+        assert bool(isinstance(val, int) for val in (date, month, year))
 
-        # region Sanity checks for input(s)
-
-        # Initialise warnings
-        input_warning = "{} trying to answer question with date={}, month={}, day={}" \
-            .format(self.__class__.__name__, date, month, day)
-        mismatch_warning = "{} trying to answer {} with {}, date={}, month={}, day={}" \
-            .format(self.__class__.__name__,
-                    "date picker" if isinstance(self._ANSWER_ELEMENTS, WebElement) else "month, date",
-                    "date string" if date else "month, date", date, month, day)
-
-        # Sanity check for input(s)
-        if not (date or (month and day)):
-            _logger.error(input_warning)
-            return
-        elif date and (month or day):
-            _logger.warning(input_warning)
-
-        if isinstance(self._ANSWER_ELEMENTS, WebElement) and not date:
-            _logger.error(mismatch_warning)
-            return
-        elif isinstance(self._ANSWER_ELEMENTS, Tuple) and not (month and day):
-            _logger.error(mismatch_warning)
-            return
-
-        # endregion Sanity checks for input(s)
-
+        # Send instructions to Google Forms
         if isinstance(self._ANSWER_ELEMENTS, WebElement):
-
-            # Check for valid date string
-            try:
-                date_time = datetime.strptime(date, self._INPUT_FORMAT)
-                if date_time > datetime(2071, 1, 1):
-                    raise ValueError
-                date = date_time.strftime(self._ANSWER_FORMAT)
-            except ValueError:
-                _logger.error("%s trying to answer a date with date=%s", self.__class__.__name__, date)
-                return False
-
-            # Instruction: Click the date picker input field and enter the date string
             self._ANSWER_ELEMENTS.click()
-            self._ANSWER_ELEMENTS.send_keys(date)
-
+            self._ANSWER_ELEMENTS.send_keys(str(day) + str(month) + str(year))
         else:
-
-            # Check for valid month and day
-            try:
-                month_int, day_int = int(month), int(day)
-                # Use 2020 as day check since 2020 is a leap year; allow upper bound
-                if not (1 <= month_int <= 12 and 1 <= day_int <= monthrange(2020, month_int)[1]):
-                    raise ValueError
-            except ValueError:
-                _logger.error("%s trying to answer a date with month=%s, day=%s",
-                              self.__class__.__name__, month, day)
-                return False
-
-            # Instruction: Click the month input field and enter the month,
-            #              then click the day input field and enter the day
             for element, answer in zip(self._ANSWER_ELEMENTS, (month, day)):
                 element.click()
                 element.send_keys(answer)
-
         return True
 
 
