@@ -13,6 +13,7 @@ TODO include dependencies
 
 from datetime import datetime
 import logging
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.remote.webelement import WebElement
 from src import Browser
 from src.questions import BaseQuestion
@@ -164,8 +165,12 @@ class DateQuestion(BaseQuestion):
 
         # Send instructions to Google Forms
         if isinstance(self._ANSWER_ELEMENTS, WebElement):
-            self._ANSWER_ELEMENTS.click()
-            self._ANSWER_ELEMENTS.send_keys(str(day) + str(month) + str(year))
+            action = ActionChains(self.get_browser().get_browser())
+            # Must use move to element with offset, otherwise this wont work
+            action.move_to_element_with_offset(self._ANSWER_ELEMENTS, 0, 0) \
+                  .click() \
+                  .send_keys("{:02d}{:02d}{:04d}".format(day, month, year)) \
+                  .perform()
         else:
             for element, answer in zip(self._ANSWER_ELEMENTS, (month, day)):
                 element.click()

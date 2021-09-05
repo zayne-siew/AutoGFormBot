@@ -33,6 +33,7 @@ from src.questions import (
     SAQuestion,
     TimeQuestion
 )
+import time
 from typing import Optional, Sequence, Tuple, Union
 
 # Set up logging
@@ -69,6 +70,7 @@ class FormProcessor(object):
         """
 
         # Initialise all variables
+        # self._BROWSER = Browser(link, headless=headless, implicit_wait=2)
         self._BROWSER = Browser(link, headless=headless)
         self._CURRENT = None
         self._QUESTIONS = deque()
@@ -344,6 +346,7 @@ class FormProcessor(object):
         # Handle scraping of next section
         if not to_submit:
             _logger.info("FormProcessor is scraping the next section of the Google Form")
+            time.sleep(1)  # Allow browser to finish loading the page, in case
             questions = self._BROWSER.get_browser().find_elements_by_class_name(question_class_name)
 
         return questions
@@ -476,79 +479,76 @@ class FormProcessor(object):
 
 
 if __name__ == '__main__':
+    pass
+    # from src.questions import BaseOptionQuestion
+    # form_url = "https://forms.gle/DwmmfPHGhkNsAVBc9"  # Personal test form
+    # processor = FormProcessor(form_url)
+    # question = processor.get_question(True)
+    # while isinstance(question, BaseQuestion):
 
-    # TODO DEBUG
-    from src.questions import BaseOptionQuestion
-    form_url = "https://forms.gle/DwmmfPHGhkNsAVBc9"  # Personal test form
-    # form_url = "https://docs.google.com/forms/d/e/1FAIpQLScssy2a0OGntW8n_1NpL9AGs1rOntVQiUk3W7uDbJyddT7W1w/viewform"
-    processor = FormProcessor(form_url)
-    question = processor.get_question(True)
-    while isinstance(question, BaseQuestion):
+    #     # Process each question
+    #     result = question.get_info()
+    #     while result is False:
+    #         # Re-crawl the web page to obtain a new question element
+    #         element = processor.refresh_section()
+    #         if not element:
+    #             result = None
+    #             break
+    #         question.set_question_element(element)
+    #         result = question.get_info()
+    #     if result is None:
+    #         # Some error occurred; to debug
+    #         break
 
-        # Process each question
-        result = question.get_info()
-        while result is False:
-            # Re-crawl the web page to obtain a new question element
-            element = processor.refresh_section()
-            if not element:
-                result = None
-                break
-            question.set_question_element(element)
-            result = question.get_info()
-        if result is None:
-            # Some error occurred; to debug
-            break
+    #     # Display the question metadata
+    #     print("Question Header:", question.get_header())
+    #     print("Question Description:", question.get_description())
+    #     print("Is question required?", question.is_required())
+    #     if isinstance(question, BaseOptionQuestion):
+    #         print("Options:", question.get_options())
+    #     if isinstance(question, BaseOptionGridQuestion):
+    #         print("Sub questions:", question.get_sub_questions())
 
-        # Display the question metadata
-        print("Question Header:", question.get_header())
-        print("Question Description:", question.get_description())
-        print("Is question required?", question.is_required())
-        if isinstance(question, BaseOptionQuestion):
-            print("Options:", question.get_options())
-        if isinstance(question, BaseOptionGridQuestion):
-            print("Sub questions:", question.get_sub_questions())
+    #     result = -1
+    #     while result is False or result == -1:
 
-        result = -1
-        while result is False or result == -1:
+    #         if result is False:
+    #             # Refresh question
+    #             element = processor.refresh_section()
+    #             if not element:
+    #                 result = None
+    #                 break
+    #             question.set_question_element(element)
+    #             # question.answer_question() will call get_info() to refresh the answer elements
 
-            if result is False:
-                # Refresh question
-                element = processor.refresh_section()
-                if not element:
-                    result = None
-                    break
-                question.set_question_element(element)
-                # question.answer_question() will call get_info() to refresh the answer elements
+    #          # Obtain user input
+    #         # Use "skip=True" to skip a question,
+    #         # and "<answer>;<answer>;..." to denote multiple answers
+    #         answers = None
+    #         if isinstance(question, BaseOptionGridQuestion):
+    #             answers = []
+    #             for sub_question in question.get_sub_questions():
+    #                 answer = input("Input answer for {}: ".format(sub_question))
+    #                 if ";" in answer:
+    #                      answer = tuple(answer.split(";"))
+    #                 answers.append(answer)
+    #             answers = tuple(answers)
+    #         elif isinstance(question, BaseQuestion):
+    #             answers = input("Input answer for {}: ".format(question.get_header()))
+    #             if ";" in answers:
+    #                 answers = tuple(answers.split(";"))
 
-            # Obtain user input
-            # Use "skip=True" to skip a question,
-            # and "<answer>;<answer>;..." to denote multiple answers
-            answers = None
-            if isinstance(question, BaseOptionGridQuestion):
-                answers = []
-                for sub_question in question.get_sub_questions():
-                    answer = input("Input answer for {}: ".format(sub_question))
-                    if ";" in answer:
-                        answer = tuple(answer.split(";"))
-                    answers.append(answer)
-                answers = tuple(answers)
-            elif isinstance(question, BaseQuestion):
-                answers = input("Input answer for {}: ".format(question.get_header()))
-                if ";" in answers:
-                    answers = tuple(answers.split(";"))
+    #         # Answer the question
+    #         if "skip=True" in answers:
+    #             result = processor.answer_question(skip=True)
+    #         elif isinstance(answers, Tuple):
+    #             result = processor.answer_question(*answers)
+    #         else:
+    #             result = processor.answer_question(answers)
 
-            # Answer the question
-            if "skip=True" in answers:
-                result = processor.answer_question(skip=True)
-            elif isinstance(answers, Tuple):
-                result = processor.answer_question(*answers)
-            else:
-                result = processor.answer_question(answers)
+    #     # Continue if question was answered successfully
+    #     if not result:
+    #         break
+    #     question = processor.get_question()
 
-        # Continue if question was answered successfully
-        if not result:
-            break
-        question = processor.get_question()
-
-    processor.reset()
-    # pass
+    # processor.reset()

@@ -272,6 +272,8 @@ class RadioGridQuestion(BaseOptionGridQuestion, RadioQuestion):
             return
 
         for answer, sub_question in zip(answers, sub_questions):
+            if not answer:
+                continue
             # Format each answer back to the "CCC, response for RRR" format
             # Which is the format in which the options are stored as
             answer += self._DELIMITER + sub_question

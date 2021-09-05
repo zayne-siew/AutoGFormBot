@@ -312,7 +312,9 @@ class CheckboxGridQuestion(BaseOptionGridQuestion, CheckboxQuestion):
             return
 
         for answer, sub_question in zip(answers, sub_questions):
-            if isinstance(answer, Tuple):
+            if not answer:
+                continue
+            elif isinstance(answer, Tuple):
                 result = self._format_and_answer(sub_question, *answer)
             else:
                 result = self._format_and_answer(sub_question, answer)

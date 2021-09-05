@@ -67,7 +67,7 @@ class TimeMarkup(BaseOptionMarkup):
         if not 0 <= minute <= 59:
             _logger.warning("TimeMarkup trying to initialise time picker with minute=%d", minute)
             minute = now.minute
-        if second:
+        if second is not None:
             hour_limit = 72  # Limit for duration questions is 72
             if not 0 <= second <= 59:
                 _logger.warning("TimeMarkup trying to initialise time picker with second=%d", second)
@@ -116,6 +116,11 @@ class TimeMarkup(BaseOptionMarkup):
         :return: The inline keyboard markup.
         """
 
+        # Sanity check
+        if start > stop:
+            _logger.error("TimeMarkup _individualise parsed start=%d and stop=%d", start, stop)
+            return InlineKeyboardMarkup([[]])
+
         # Initialisation
         n = stop - start + 1
         blank = InlineKeyboardButton(" ", callback_data=self._IGNORE)
@@ -130,22 +135,38 @@ class TimeMarkup(BaseOptionMarkup):
         return InlineKeyboardMarkup(buttons)
 
     @staticmethod
-    def _group(n: int) -> InlineKeyboardMarkup:
+    def _group(*, time_hour: Optional[bool] = False, duration_hour: Optional[bool] = False,
+               minute_second: Optional[bool] = False) -> InlineKeyboardMarkup:
         """Helper function to return an inline keyboard markup with numbers grouped for visualisation.
 
-        This function expects only either n=60 or n=72, hence, the numbers will be distributed into 6 groups.
+        This function is only designed to handle one of three scenarios:
+            - Hour range from 1-12 (12-hour format time)
+            - Hour range from 0-72 (duration)
+            - Minute/second range from 0-59
+        NOTE: Exactly one of these three scenarios must be specified via the flag parameters.
 
-        :param n: The total number of numbers to group.
+        :param time_hour: Flag to indicate handling hour range from 1-12.
+        :param duration_hour: Flag to indicate handling duration range from 0-73.
+        :param minute_second: Flag to indicate handling minute/second range from 0-59.
         :return: The inline keyboard markup.
         """
 
-        m = math.ceil(n/6)
+        # Sanity check
+        if not ((time_hour and not duration_hour and not minute_second) or
+                (not time_hour and duration_hour and not minute_second) or
+                (not time_hour and not duration_hour and minute_second)):
+            _logger.error("TimeMarkup _group time_hour=%s duration_hour=%s minute_second=%s not supported",
+                          time_hour, duration_hour, minute_second)
+            return InlineKeyboardMarkup([[]])
+
+        n = 12 if time_hour else 72 if duration_hour else 59
+        m = math.ceil(n/6)  # Split the numbers into 6 even groups
         keyboard = []
         for i in range(3):
             button_row = []
             for j in range(2):
-                _min = (2 * i + j) * m + 1
-                _max = min((2 * i + j + 1) * m, n)
+                _min = (2 * i + j) * m + 1 * time_hour
+                _max = min((2 * i + j + 1) * m - 1 * (not time_hour), n)
                 button_row.append(InlineKeyboardButton("{} - {}".format(_min, _max),
                                                        callback_data="{}-{}".format(_min, _max)))
             keyboard.append(button_row)
@@ -214,7 +235,7 @@ class TimeMarkup(BaseOptionMarkup):
             ],
             [
                 # Values to be displayed on the second row
-                InlineKeyboardButton("{:02d}".format(self._HOUR - 12 * (self._HOUR > 12)),
+                InlineKeyboardButton("{:02d}".format(self._HOUR - 12 * (self._SECOND is None and self._HOUR > 12)),
                                      callback_data=self._CHOOSE_HOUR),
                 InlineKeyboardButton("{:02d}".format(self._MINUTE), callback_data=self._CHOOSE_MINUTE),
                 button
@@ -261,16 +282,16 @@ class TimeMarkup(BaseOptionMarkup):
             result = self.get_markup()
         elif option == self._CHOOSE_HOUR:
             self._HOUR = -1
-            result = self._group(12 if self._SECOND is None else 72)
+            result = self._group(time_hour=True) if self._SECOND is None else self._group(duration_hour=True)
         elif option == self._CHOOSE_MINUTE:
             self._MINUTE = -1
-            result = self._group(60)
+            result = self._group(minute_second=True)
         elif option == self._CHOOSE_SECOND:
             self._SECOND = -1
-            result = self._group(60)
+            result = self._group(minute_second=True)
         elif option == self._FINALISE:
-            result = "{}:{}{}".format(self._HOUR, self._MINUTE,
-                                      "" if self._SECOND is None else ":{}".format(self._SECOND))
+            result = "{:02d}:{:02d}{}".format(self._HOUR, self._MINUTE,
+                                              "" if self._SECOND is None else ":{:02d}".format(self._SECOND))
         elif "-" in option:
             start, stop = option.split("-")
             return self._individualise(int(start), int(stop))

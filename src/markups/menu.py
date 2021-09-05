@@ -123,7 +123,7 @@ class MenuMarkup(BaseOptionMarkup):
         """
 
         pattern = super().get_pattern()
-        return pattern[:-2] + "|".join((self._CLEAR, self._FINALISE, self._SKIP)) + ")$"
+        return pattern[:-2] + "|" + "|".join((self._CLEAR, self._FINALISE, self._SKIP)) + ")$"
 
     def get_markup(self, *_) -> InlineKeyboardMarkup:
         """Initialises the markup with parsed options.
@@ -137,8 +137,6 @@ class MenuMarkup(BaseOptionMarkup):
                                   option_datas={"Clear": self._CLEAR, "OK": self._FINALISE, "Skip": self._SKIP})
 
     # endregion Getters
-
-    # TODO update_other_option()
 
     def _is_option(self, option: str) -> bool:
         """Verify if the option parsed is defined.

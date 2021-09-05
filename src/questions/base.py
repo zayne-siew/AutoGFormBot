@@ -387,7 +387,6 @@ class BaseOptionQuestion(AbstractOptionQuestion, BaseQuestion):
             return
 
         self._OPTIONS = options + (self._OTHER_OPTION_LABEL,) * has_other_option
-        print(self._OPTIONS)  # TODO DEBUG
 
     def set_other_option_element(self, element: WebElement) -> None:
         """Sets the other option element if it has changed.

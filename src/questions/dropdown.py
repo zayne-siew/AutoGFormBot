@@ -116,7 +116,7 @@ class DropdownQuestion(BaseOptionQuestion):
 
         # Cache web elements and options
         self.set_answer_elements(placeholder, menu)
-        self._set_options(*options)
+        self._set_options(*options, has_other_option=False)
         menu_elements[0].click()
         time.sleep(self._BUFFER_SECONDS)
         return True

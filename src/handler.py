@@ -25,7 +25,15 @@ import logging
 import os
 import random
 import re
-from telegram import InlineKeyboardMarkup, MessageEntity, ParseMode, ReplyKeyboardRemove, Update
+from telegram import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MessageEntity,
+    ParseMode,
+    ReplyKeyboardRemove,
+    Update
+)
 from telegram.ext import (
     CallbackContext,
     CallbackQueryHandler,
@@ -89,8 +97,9 @@ _F = TypeVar('_F', bound=Callable[..., Any])
     _REMIND_MENU,
 
     # Miscellaneous
-    _STOPPING  # Force stop in nested ConversationHandlers
-) = utils.generate_random_signatures(13)
+    _STOPPING,  # Force stop in nested ConversationHandlers
+    _RETURN  # Return to main menu from nested ConversationHandlers
+) = utils.generate_random_signatures(14)
 
 # User data constants
 (
@@ -142,6 +151,11 @@ _anti_garbage_replies = (
 
 # endregion Garbage echoes
 
+# Telegram markup to return to main menu
+_RETURN_CALLBACK_DATA = "RETURN"
+_RETURN_KEYBOARD_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton(utils.text_to_markdownv2("Return to main menu"),
+                                                                      callback_data=_RETURN_CALLBACK_DATA)]])
+
 # endregion Define constants
 
 # region Helper functions
@@ -157,24 +171,22 @@ def _reset_garbage_counter(function: _F) -> _F:
     :return: The decorated function.
     """
 
-    # NOTE: According to type-hinting documentation, inner wrapper functions are small enough
-    # such that not type-checking them should not pose too big an issue
-    # https://mypy.readthedocs.io/en/stable/generics.html#declaring-decorators
     @wraps(function)
-    def _wrapper(*args, **kwargs):
-        try:
-            # Assert the second argument is the context argument
-            assert len(args) >= 2
-            assert isinstance(args[1], CallbackContext)
+    def _wrapper(update: Update, context: CallbackContext, *args: Any, **kwargs: Any) -> Any:
+        """Custom wrapper function to reset the _GARBAGE_INPUT_COUNTER.
 
-            # Reset the counter
-            if _GARBAGE_INPUT_COUNTER in args[1].user_data.keys() and args[1].user_data.get(_GARBAGE_INPUT_COUNTER) > 0:
-                args[1].user_data[_GARBAGE_INPUT_COUNTER] = 0
+        Asserts that the functions that use this wrapper have the update and context parameters
+        as the first two positional arguments, respectively.
 
-        except AssertionError:
-            _logger.error("_reset_garbage_counter could not reset counter")
-        finally:
-            return function(*args, **kwargs)
+        :param update: The Update instance to clear the counter from.
+        :param context: The CallbackContext instance to clear the counter from.
+        :return: The expected return value of the function.
+        """
+
+        if _GARBAGE_INPUT_COUNTER in context.user_data.keys() and context.user_data.get(_GARBAGE_INPUT_COUNTER) > 0:
+            context.user_data[_GARBAGE_INPUT_COUNTER] = 0
+        return function(update, context, *args, **kwargs)
+
     return cast(_F, _wrapper)
 
 
@@ -279,28 +291,6 @@ def _main_menu(update: Update, context: CallbackContext) -> str:
     # region Check if CallbackQueryHandler called
 
     if update.callback_query:
-
-        # Store data from callback data if any
-        # TODO remove
-        if update.callback_query.data:
-            data = update.callback_query.data
-
-            # Expecting data from: _set_preference
-            if SavePrefMarkup.is_option(data):
-                if _SET_PREFERENCE not in context.user_data.keys():
-                    context.user_data[_SET_PREFERENCE] = {}
-                context.user_data.get(_SET_PREFERENCE)[_GLOBAL_SAVE_PREF] = data
-
-            # Expecting False value from: _confirm_reset
-            elif data == TFMarkup.get_false():
-                # Nothing needs to be stored; do nothing
-                pass
-
-            # Unexpected callback data
-            # Log mainly for debugging purposes
-            else:
-                _logger.warning("_main_menu recevied unexpected callback data: %s", data)
-
         # Edit message to main menu
         update.callback_query.answer()
         update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
@@ -351,7 +341,7 @@ def _main_menu(update: Update, context: CallbackContext) -> str:
     # Error occurred
     # Can't use utils.send_bug_message since no message instance is found
     else:
-        _logger.error("_main_menu message class to send message not found: {}".format(update))
+        _logger.error("_main_menu message class to send message not found: %s", update)
         return ConversationHandler.END
 
     return _SELECTING_ACTION
@@ -436,6 +426,17 @@ def _remove_current_pointers(context: CallbackContext) -> None:
     if keys_missing:
         _logger.warning("_remove_current_pointers %s not found in context.user_data.keys()", keys_missing)
 
+
+def _show_loading_screen(callback_query: CallbackQuery) -> None:
+    """Helper function to show a loading screen while processing in the background.
+
+    This method only works for CallbackQueryHandlers.
+
+    :param callback_query: The CallbackQueryHandler instance to show the loading screen to.
+    """
+
+    callback_query.edit_message_text(utils.text_to_markdownv2("Please wait..."), parse_mode=ParseMode.MARKDOWN_V2)
+
 # endregion Helper functions
 
 
@@ -509,31 +510,27 @@ def _process_answer(update: Update, context: CallbackContext) -> str:
         update.callback_query.edit_message_text(utils.text_to_markdownv2(update.callback_query.message.text),
                                                 parse_mode=ParseMode.MARKDOWN_V2,
                                                 reply_markup=result)
-    elif isinstance(result, str):
-
-        # Check if 'Other' option is selected
-        if result == BaseOptionQuestion.get_other_option_label():
-            if update.callback_query:
-                update.callback_query.edit_message_text(
-                    utils.text_to_markdownv2(update.callback_query.message.text),
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
-            update.message.reply_text(
-                utils.text_to_markdownv2("Please specify your alternative option:"),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=ReplyKeyboardRemove()
-            )
-            return _ANSWER_OTHER
+    elif isinstance(result, str) or isinstance(result, Tuple):
 
         # Save answer into user data
         if isinstance(context.user_data.get(_CURRENT_ANSWER), OrderedDict):
             keys = list(context.user_data.get(_CURRENT_ANSWER).keys())
             for key in keys:
                 if context.user_data.get(_CURRENT_ANSWER).get(key) is None:
-                    context.user_data.get(_CURRENT_ANSWER)[key] = result
+                    context.user_data.get(_CURRENT_ANSWER)[key] = \
+                        "" if result == BaseOptionMarkup.get_skip() or result == "/skip" else result
                     break
         else:
             context.user_data[_CURRENT_ANSWER] = result
+
+        # Check if 'Other' option is selected
+        if BaseOptionQuestion.get_other_option_label() in result:
+            text = utils.text_to_markdownv2("Please specify your alternative option:")
+            if update.message:
+                update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=ReplyKeyboardRemove())
+            else:
+                update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2)
+            return _ANSWER_OTHER
 
         # Prompt for user input
         text = utils.text_to_markdownv2("Are you sure you want to skip this question?"
@@ -545,6 +542,7 @@ def _process_answer(update: Update, context: CallbackContext) -> str:
         else:
             update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=tf_markup)
         return _CONFIRM_SUBMIT
+
     return _SKIP_OR_ANSWER
 
     # endregion Determine action according to result
@@ -563,21 +561,54 @@ def _process_other(update: Update, context: CallbackContext) -> str:
     :return: The relevant state for further processing.
     """
 
-    # Initialisation
+    # region Initialisation
+
     try:
         assert _CURRENT_MARKUP in context.user_data.keys()
+        assert _CURRENT_ANSWER in context.user_data.keys()
     except AssertionError as error:
         _logger.error("_process_other AssertionError detected while trying to initialise:\n%s", error)
         utils.send_bug_message(update.message)
         return _STOPPING
 
-    # TODO context.user_data.get(_CURRENT_MARKUP).update_other_option()
-    
-    return _SKIP_OR_ANSWER
+    # endregion Initialisation
+
+    # region Save answer
+
+    result = context.user_data.get(_CURRENT_ANSWER)
+    curr_key = None
+    if isinstance(result, OrderedDict):
+        for key in list(result.keys()):
+            if BaseOptionQuestion.get_other_option_label() in result.get(key):
+                curr_key = key
+                result = result.get(key)
+                break
+
+    if isinstance(result, str):
+        result = update.message.text
+    else:
+        result = list(context.user_data.get(_CURRENT_ANSWER))
+        result[result.index(BaseOptionQuestion.get_other_option_label())] = update.message.text
+        result = tuple(result)
+    if curr_key:
+        context.user_data.get(_CURRENT_ANSWER)[curr_key] = result
+    else:
+        context.user_data[_CURRENT_ANSWER] = result
+
+    # endregion Save answer
+
+    # Prompt for user input
+    text = utils.text_to_markdownv2("Please confirm your answer:\n{}".format(result))
+    tf_markup = TFMarkup().get_markup()
+    if update.message:
+        update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=tf_markup)
+    else:
+        update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=tf_markup)
+    return _CONFIRM_SUBMIT
 
 
 @_reset_garbage_counter
-def _obtain_question(update: Update, context: CallbackContext, start: bool = True) -> str:
+def _obtain_question(update: Update, context: CallbackContext, *, to_process: Optional[bool] = True) -> str:
     """Handler for obtaining Google Form questions.
 
     The function obtains the next question to be processed (or remains at the current question instance,
@@ -585,7 +616,7 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
 
     :param update: The update instance to obtain the Google Form question.
     :param context: The CallbackContext instance to obtain the Google Form question.
-    :param start: Flag to indicate if this is the first Google Forms question being processed.
+    :param to_process: Flag to indicate if the question should be processed.
     :return: The relevant state for further processing.
     """
 
@@ -601,10 +632,7 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
         elif update.message:
             utils.send_bug_message(update.message)
         return _STOPPING
-    to_process = _CURRENT_QUESTION not in context.user_data.keys()
-    # Answer the callback query from _main_menu
-    if start:
-        update.callback_query.answer()
+    _show_loading_screen(update.callback_query)
 
     # endregion Initialisation
 
@@ -612,22 +640,27 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
 
     # Obtain FormProcessor
     processor = context.user_data.get(_PROCESSOR)
+    start = False
     if not isinstance(processor, FormProcessor):
         assert isinstance(processor, str)
-        # processor = FormProcessor(processor, headless=True)
-        processor = FormProcessor(processor)
+        processor = FormProcessor(processor, headless=True)
         context.user_data[_PROCESSOR] = processor
+        update.callback_query.answer()
+        start = True
 
     # Initialise new question instance based on Google Form question
-    if to_process:
+    if _CURRENT_QUESTION not in context.user_data.keys():
         question = processor.get_question(start)
         if question is True:
             # No more questions, exit back to main menu
             update.callback_query.edit_message_text(
                 utils.text_to_markdownv2("🥳 The form has submitted successfully! 🥳"),
-                parse_mode=ParseMode.MARKDOWN_V2
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=_RETURN_KEYBOARD_MARKUP
             )
-            return _main_menu(update, context)
+            processor.get_browser().close_browser()
+            context.user_data[_PROCESSOR] = processor.get_browser().get_link()
+            return _RETURN
         elif question is False or not isinstance(question, BaseQuestion):
             # Some error occurred
             _logger.error("_obtain_question error occurred while trying to obtain the next question")
@@ -701,7 +734,7 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
                             result = _submit_to_google_forms(processor, str(answer))
                         if result:
                             _remove_current_pointers(context)
-                            return _obtain_question(update, context, False)  # Process the next question
+                            return _obtain_question(update, context)  # Process the next question
                         else:
                             _logger.error("_obtain_question failed to submit to google forms, please debug")
                             return _STOPPING
@@ -734,17 +767,18 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
 
     text = "{}\n" \
            "==============\n" \
-           "{}{}".format(question.get_header(), question.get_description(),
+           "{}{}".format(question.get_header(),
+                         question.get_description() if question.get_description() else "(no description)",
                          "\n\nThis is a required question." if question.is_required() else "")
 
     # Format sub-question for grid-based questions
+    sub_question = None
     if isinstance(question, BaseOptionGridQuestion):
         if _CURRENT_ANSWER not in context.user_data.keys():
             context.user_data[_CURRENT_ANSWER] = OrderedDict((q, None) for q in question.get_sub_questions())
 
         # Obtain the next sub-question to process
-        sub_question = None
-        for key, value in context.user_data.get(_CURRENT_ANSWER, OrderedDict()):
+        for key, value in context.user_data.get(_CURRENT_ANSWER, OrderedDict()).items():
             if value is None:
                 sub_question = key
                 break
@@ -756,20 +790,25 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
         text += "\n\nProcessing answer for {}.".format(sub_question)
 
         # Obtain relevant saved answer, if any
-        if answer:
-            if not isinstance(answer, dict):
-                _logger.warning("_obtain_question unexpected saved answer for %s\n"
-                                "question=%s, answer=%s", question.__class__.__name__, question, answer)
-                _ = context.user_data.get(_SET_PREFERENCE, {}).get(_LOCAL_SAVE_PREF, {}).pop(question.get_pref_key())
-                answer = None
-            else:
-                answer = answer.get(sub_question)
+        if answer and not isinstance(answer, OrderedDict):
+            _logger.warning("_obtain_question unexpected saved answer for %s\n"
+                            "question=%s, answer=%s", question.__class__.__name__, question, answer)
+            _ = context.user_data.get(_SET_PREFERENCE, {}).get(_LOCAL_SAVE_PREF, {}).pop(question.get_pref_key())
+            answer = None
 
     # Format saved answers
     if to_process and bool(answer):
+        if _CURRENT_ANSWER not in context.user_data.keys():
+            context.user_data[_CURRENT_ANSWER] = answer
+
+        # Obtain relevant saved answer from grid-based question, if any
+        if isinstance(question, BaseOptionGridQuestion):
+            assert isinstance(answer, OrderedDict) and isinstance(context.user_data.get(_CURRENT_ANSWER), OrderedDict)
+            answer = answer.get(sub_question)
+            context.user_data.get(_CURRENT_ANSWER)[sub_question] = answer
 
         # Format answer
-        if answer == BaseOptionMarkup.get_skip():
+        if answer == BaseOptionMarkup.get_skip() or not answer:
             answer_text = "Skipping the question"
         elif isinstance(answer, str):
             answer_text = answer
@@ -779,7 +818,7 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
 
         if preference == SavePrefMarkup.get_ask_again():
             # Based on user preference, ask to use saved answer
-            text += "\n\n💡 SAVED ANSWER DETECTED 💡" \
+            text += "\n\n💡 SAVED ANSWER DETECTED 💡\n" \
                     "I've previously saved the following answer:\n" \
                     "{}\n" \
                     "Would you like to submit this answer?".format(answer_text)
@@ -820,7 +859,7 @@ def _obtain_question(update: Update, context: CallbackContext, start: bool = Tru
         markup = markup.get_markup()
 
     # Prompt user for selection / input
-    text += "\nPlease {} your answer.".format("select" if isinstance(question, BaseOptionQuestion) else "input")
+    text += "\n\nPlease {} your answer.".format("select" if isinstance(question, BaseOptionQuestion) else "input")
     if not question.is_required():
         text += "\nTo skip the question,{} type '/skip'.".format(" select the 'Skip' option or"
                                                                  if isinstance(question, BaseOptionQuestion) else "")
@@ -859,7 +898,8 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
             utils.send_bug_message(update.message)
         return _STOPPING
     update.callback_query.answer()
-    _ = context.user_data.pop(_CURRENT_MARKUP)
+    if _CURRENT_MARKUP in context.user_data.keys():
+        _ = context.user_data.pop(_CURRENT_MARKUP)
 
     # endregion Initialisation
 
@@ -872,9 +912,18 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
     elif result:
         if isinstance(context.user_data.get(_CURRENT_ANSWER), OrderedDict) and \
                 None in context.user_data.get(_CURRENT_ANSWER).values():
-            return _obtain_question(update, context, False)  # Process next sub-question in _CURRENT_QUESTION
+            return _obtain_question(update, context)  # Process next sub-question in _CURRENT_QUESTION
         else:
-            result = _submit_to_google_forms(context.user_data.get(_PROCESSOR), context.user_data.get(_CURRENT_ANSWER))
+            _show_loading_screen(update.callback_query)
+            if isinstance(context.user_data.get(_CURRENT_ANSWER), OrderedDict):
+                result = _submit_to_google_forms(context.user_data.get(_PROCESSOR),
+                                                 *context.user_data.get(_CURRENT_ANSWER).values())
+            elif isinstance(context.user_data.get(_CURRENT_ANSWER), tuple):
+                result = _submit_to_google_forms(context.user_data.get(_PROCESSOR),
+                                                 *context.user_data.get(_CURRENT_ANSWER))
+            else:
+                result = _submit_to_google_forms(context.user_data.get(_PROCESSOR),
+                                                 str(context.user_data.get(_CURRENT_ANSWER)))
             if not result:
                 _logger.error("_submit_answer failed to submit answer to Google forms, please debug")
                 return _STOPPING
@@ -885,7 +934,7 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
                     # Reset answer back to None
                     context.user_data.get(_CURRENT_ANSWER)[key] = None
                     break
-        return _obtain_question(update, context, False)  # Process current question in _CURRENT_QUESTION
+        return _obtain_question(update, context, to_process=False)  # Process current question in _CURRENT_QUESTION
 
     # endregion Confirm submission
 
@@ -920,11 +969,11 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
         # Automatically save answer and continue
         question_pref[_ANSWER_KEY] = context.user_data.get(_CURRENT_ANSWER)
         _remove_current_pointers(context)
-        return _obtain_question(update, context, False)  # Process the next question
+        return _obtain_question(update, context)  # Process the next question
     elif question_pref.get(_PREF_KEY) == SavePrefMarkup.get_never_save():
         # No answers to be saved, continue
         _remove_current_pointers(context)
-        return _obtain_question(update, context, False)  # Process the next question
+        return _obtain_question(update, context)  # Process the next question
     else:
         # Prompt for confirmation of saving of answer
         update.callback_query.edit_message_text(
@@ -974,13 +1023,14 @@ def _save_answer(update: Update, context: CallbackContext) -> str:
     elif result:
         local_save_pref.get(question.get_pref_key(), {})[_ANSWER_KEY] = context.user_data.get(_CURRENT_ANSWER)
     _remove_current_pointers(context)
-    return _obtain_question(update, context, False)  # Process the next question
+    return _obtain_question(update, context)  # Process the next question
 
 # endregion Processing form
 
 
 # region Terminating functions
 
+@_reset_garbage_counter
 def _stop_helper(update: Update, context: CallbackContext, message: str, to_return: Union[int, str]) -> Union[int, str]:
     """Helper function to completely end conversation.
 
@@ -1025,7 +1075,6 @@ def _stop(update: Update, context: CallbackContext) -> int:
                                          "👋 Hope to see you again soon! 👋", ConversationHandler.END)
 
 
-@_reset_garbage_counter
 def _stop_nested(update: Update, context: CallbackContext) -> str:
     """Completely end conversation from within nested conversation.
 
@@ -1227,7 +1276,10 @@ def main() -> None:
             _SAVE_ANSWER: [CallbackQueryHandler(_save_answer, pattern=TFMarkup.get_pattern())]
         },
         fallbacks=[CommandHandler("stop", _stop_nested)],
-        map_to_parent={_STOPPING: ConversationHandler.END}
+        map_to_parent={
+            _RETURN: _OBTAINING_LINK,
+            _STOPPING: ConversationHandler.END
+        }
     )
 
     # endregion Set up second level ConversationHandler (submitting form)
@@ -1265,7 +1317,6 @@ def main() -> None:
     selection_handlers = [
         submit_conv_handler,
         remind_conv_handler,
-        CallbackQueryHandler(_set_preference, pattern="^" + _SET_PREFERENCE + "$"),  # TODO REMOVE
         pref_conv_handler,
         CallbackQueryHandler(_stop, pattern="^" + _STOPPING + "$"),
         CallbackQueryHandler(_reset, pattern="^" + _RESET + "$")
@@ -1276,7 +1327,7 @@ def main() -> None:
         states={
             _OBTAINING_LINK: [
                 MessageHandler(Filters.entity(MessageEntity.TEXT_LINK) | Filters.entity(MessageEntity.URL), _main_menu),
-                CallbackQueryHandler(_main_menu, pattern=SavePrefMarkup.get_pattern())
+                CallbackQueryHandler(_main_menu, pattern="^" + _RETURN_CALLBACK_DATA + "$")
             ],
             _SELECTING_ACTION: selection_handlers,
             _CONFIRM_RESET: [CallbackQueryHandler(_confirm_reset, pattern=TFMarkup.get_pattern())],

@@ -29,6 +29,7 @@ from selenium.common.exceptions import (
 from selenium.webdriver.chrome.webdriver import WebDriver
 import time
 from typing import Any, Callable, Optional, TypeVar, cast
+from webdriver_manager.chrome import ChromeDriverManager
 
 # region Define constants
 
@@ -225,8 +226,8 @@ class Browser(object):
             options.add_argument("disable-gpu")
 
         # Initialise browser with link
-        self._BROWSER = webdriver.Chrome(executable_path=_CHROMEDRIVER_PATH, options=options)
-        # self._browser = webdriver.Chrome(options=options)  # webdriver will search for chromedriver by itself
+        self._BROWSER = webdriver.Chrome(executable_path=ChromeDriverManager(print_first_line=False).install(),
+                                         options=options)
         self._BROWSER.get(self._LINK)
         self._BROWSER.implicitly_wait(self._IMPLICIT_WAIT)
 
