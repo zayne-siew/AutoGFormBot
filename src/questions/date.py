@@ -11,12 +11,12 @@ Usage:
 TODO include dependencies
 """
 
+from browser import Browser
 from datetime import datetime
 import logging
+from questions import BaseQuestion
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.remote.webelement import WebElement
-from src import Browser
-from src.questions import BaseQuestion
 from typing import Optional, Tuple, Union
 
 # Set up logging

@@ -10,12 +10,12 @@ Usage:
 TODO include dependencies
 """
 
+from browser import Browser
 import logging
+from questions import AbstractQuestion, AbstractOptionQuestion
 import re
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.remote.webelement import WebElement
-from src import Browser
-from src.questions import AbstractQuestion, AbstractOptionQuestion
 from typing import Any, Optional, Tuple
 
 # Set up logging

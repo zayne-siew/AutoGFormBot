@@ -13,12 +13,19 @@ This script uses custom classes as representations of Google Form questions unde
 TODO include dependencies
 """
 
+# region Imports
+
+# External imports
 from collections import deque
 import logging
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.remote.webelement import WebElement
-from src import Browser
-from src.questions import (
+import time
+from typing import Optional, Sequence, Tuple, Union
+
+# Local imports
+from browser import Browser
+from questions import (
     BaseQuestion,
     BaseOptionGridQuestion,
     CheckboxQuestion,
@@ -33,8 +40,8 @@ from src.questions import (
     SAQuestion,
     TimeQuestion
 )
-import time
-from typing import Optional, Sequence, Tuple, Union
+
+# endregion Imports
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)

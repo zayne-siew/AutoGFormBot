@@ -13,7 +13,7 @@ TODO include dependencies
 """
 
 import logging
-from src.markups import BaseMarkup, BaseOptionMarkup, DateMarkup, TimeMarkup
+from markups import BaseMarkup, BaseOptionMarkup, DateMarkup, TimeMarkup
 from telegram import InlineKeyboardMarkup
 from typing import Optional, Union
 

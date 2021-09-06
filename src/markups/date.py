@@ -42,7 +42,7 @@ TODO include dependencies
 import calendar
 from datetime import datetime
 import logging
-from src.markups import BaseMarkup, BaseOptionMarkup
+from markups import BaseMarkup, BaseOptionMarkup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from typing import Optional, Union
 

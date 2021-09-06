@@ -15,7 +15,7 @@ TODO include dependencies
 """
 
 import logging
-from src.markups import BaseMarkup
+from markups import BaseMarkup
 from telegram import InlineKeyboardMarkup
 from typing import Optional
 

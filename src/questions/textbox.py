@@ -11,10 +11,10 @@ Usage:
 TODO include dependencies
 """
 
+from browser import Browser
 import logging
+from questions import BaseQuestion
 from selenium.webdriver.remote.webelement import WebElement
-from src import Browser
-from src.questions import BaseQuestion
 from typing import Optional
 
 # Set up logging

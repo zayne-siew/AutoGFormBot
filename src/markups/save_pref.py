@@ -15,7 +15,7 @@ Usage:
 TODO include dependencies
 """
 
-from src.markups import BaseMarkup
+from markups import BaseMarkup
 from telegram import InlineKeyboardMarkup
 
 

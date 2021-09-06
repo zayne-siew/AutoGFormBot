@@ -19,6 +19,9 @@ This script uses custom classes as representations of Google Form questions unde
 TODO include dependencies
 """
 
+# region Imports
+
+# External imports
 from collections import OrderedDict
 from functools import wraps
 import logging
@@ -45,8 +48,9 @@ from telegram.ext import (
 )
 import traceback
 from typing import Any, Callable, Optional, Tuple, TypeVar, Union, cast
-from src import FormProcessor, utils
-from src.markups import (
+
+# Local imports
+from markups import (
     BaseMarkup,
     BaseOptionMarkup,
     DateMarkup,
@@ -56,7 +60,8 @@ from src.markups import (
     TimeMarkup,
     TFMarkup
 )
-from src.questions import (
+from processor import FormProcessor
+from questions import (
     BaseQuestion,
     BaseOptionQuestion,
     BaseOptionGridQuestion,
@@ -66,6 +71,9 @@ from src.questions import (
     DurationQuestion,
     TimeQuestion
 )
+import utils
+
+# endregion Imports
 
 # region Define constants
 
@@ -80,7 +88,6 @@ _F = TypeVar('_F', bound=Callable[..., Any])
 (
     # Main menu states
     _OBTAINING_LINK,  # Prompting user for Google Form link
-    _SELECTING_ACTION,  # Prompting user for action in main menu
     _SET_PREFERENCE,  # Set preference option in main menu
     _MAIN_MENU,  # Prompting user for action to return to main menu
     _RESET,  # Reset option in main menu
@@ -93,13 +100,21 @@ _F = TypeVar('_F', bound=Callable[..., Any])
     _CONFIRM_SUBMIT,  # Confirmation and submission of answers to Google Form
     _SAVE_ANSWER,  # Determine user preference for saving answer
 
+    # Preference menu states
+    _EDIT_PREF_GLOBAL,  # User selection of global preference
+    _EDIT_PREF_LOCAL,  # User selection of local preference
+    _SELECT_QUESTION,  # User selection of question to set local preference for
+    _CONFIRM_PREF_GLOBAL,  # User confirmation of global preference
+    _CONFIRM_PREF_LOCAL,  # User confirmation of local preference
+
     # Reminder menu states
     _REMIND_MENU,
 
     # Miscellaneous
+    _SELECTING_ACTION,  # Prompting user for action in main menu
     _STOPPING,  # Force stop in nested ConversationHandlers
     _RETURN  # Return to main menu from nested ConversationHandlers
-) = utils.generate_random_signatures(14)
+) = utils.generate_random_signatures(19)
 
 # User data constants
 (
@@ -153,8 +168,6 @@ _anti_garbage_replies = (
 
 # Telegram markup to return to main menu
 _RETURN_CALLBACK_DATA = "RETURN"
-_RETURN_KEYBOARD_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton(utils.text_to_markdownv2("Return to main menu"),
-                                                                      callback_data=_RETURN_CALLBACK_DATA)]])
 
 # endregion Define constants
 
@@ -350,33 +363,135 @@ def _main_menu(update: Update, context: CallbackContext) -> str:
 # region Setting preferences
 
 @_reset_garbage_counter
-def _set_preference(update: Update, context: CallbackContext) -> str:
-    """Handles user preference to save answers.
+def _pref_menu(update: Update, _: CallbackContext) -> str:
+    """Handles the preference menu.
 
-    :param update: The update instance that is setting the save preference.
-    :param context: The CallbackContext instance that is setting the save preference.
-    :return: The _OBTAINING_LINK state to go back to the main menu.
+    :param update: The update instance that is handling the preference menu.
+    :return: The _SELECTING_ACTION state for handling of menu options.
     """
 
-    # TODO make new menu for preferences
+    # region Initialisation
 
-    # Initialise save preference menu
-    text = utils.text_to_markdownv2(
-        "❗ Should I save ALL your answers? ❗\n"
-        "This will affect ALL questions for this form!"
-    )
-    if _GLOBAL_SAVE_PREF in context.user_data.get(_SET_PREFERENCE, {}).keys():
-        text += utils.text_to_markdownv2(
-            "\n\nYour current preference is:\n\t{}\n"
-            "❗ Selecting a new preference will OVERRIDE the current one! ❗".format(
-                context.user_data.get(_SET_PREFERENCE, {}).get(_GLOBAL_SAVE_PREF))
-        )
-
-    # Prompt user for preference
+    try:
+        assert update.callback_query
+    except AssertionError as error:
+        _logger.error("_set_preference AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        return _STOPPING
     update.callback_query.answer()
-    update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2,
+
+    # endregion Initialisation
+
+    # region Initialise preference menu
+
+    reply_markup = BaseMarkup().get_markup(
+        "🌎 Select general preference 🌎",
+        "🔍 Edit preference per question 🔍",
+        "🔙 Return to main menu 🔙",
+        option_datas={
+            "🌎 Select general preference 🌎": _EDIT_PREF_GLOBAL,
+            "🔍 Edit preference per question 🔍": _EDIT_PREF_LOCAL,
+            "🔙 Return to main menu 🔙": _RETURN_CALLBACK_DATA
+        }
+    )
+    text = utils.text_to_markdownv2(
+        "⚙️ PREFERENCE MENU ⚙️\n\n"
+        "🌎 Select your general save preference.\n"
+        "🔍 Edit your save preference for a specific question.\n"
+        "🔙 Return to the main menu.\n\n"
+        "Please select an option:"
+    )
+
+    # endregion Initialise preference menu
+
+    update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+    return _SELECTING_ACTION
+
+
+@_reset_garbage_counter
+def _select_global_pref(update: Update, context: CallbackContext) -> str:
+    """Handles the selection of global preferences.
+
+    :param update: The update instance to handle selecting the global preference.
+    :param context: The CallbackContext instance to handle selecting the global preference.
+    :return: The _CONFIRM_PREF_GLOBAL state to process global preference confirmation.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query
+    except AssertionError as error:
+        _logger.error("_select_global_pref AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        return _STOPPING
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # Obtain previously-selected preference, if any
+    text = ""
+    if _GLOBAL_SAVE_PREF in context.user_data.get(_SET_PREFERENCE, {}).keys():
+        text += "Your current selected general preference is:\n{}\n".format(
+            context.user_data.get(_SET_PREFERENCE, {}).get(_GLOBAL_SAVE_PREF))
+
+    # Format and output
+    text += "Please select your general save preference:"
+    update.callback_query.edit_message_text(utils.text_to_markdownv2(text),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
                                             reply_markup=SavePrefMarkup().get_markup())
-    return _OBTAINING_LINK
+    return _CONFIRM_PREF_GLOBAL
+
+
+@_reset_garbage_counter
+def _confirm_global_pref(update: Update, context: CallbackContext) -> str:
+    """Handles the confirmation of global preferences.
+
+    :param update: The update instance to confirm the global preference.
+    :param context: The CallbackContext instance to confirm the global preference.
+    :return: The relevant state for further processing.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query.data
+    except AssertionError as error:
+        _logger.error("_confirm_global_pref AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        return _STOPPING
+    result = update.callback_query.data
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # Ensure callback data is recognised
+    if not SavePrefMarkup.is_option(result):
+        _logger.error("_confirm_global_pref unrecognised preference received: %s", result)
+        utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+
+    # Save global preference
+    if _GLOBAL_SAVE_PREF not in context.user_data.get(_SET_PREFERENCE, {}).keys():
+        context.user_data[_SET_PREFERENCE] = {_GLOBAL_SAVE_PREF: None}
+    context.user_data.get(_SET_PREFERENCE)[_GLOBAL_SAVE_PREF] = result
+    return _pref_menu(update, context)
+
+
+@_reset_garbage_counter
+def _pref_return(update: Update, context: CallbackContext) -> str:
+    """Handles returning from preference menu to main menu.
+
+    :param update: The update instance to return to the main menu.
+    :param context: The CallbackContext instance to return to the main menu.
+    :return: The _RETURN state to return to the main menu.
+    """
+
+    _ = _main_menu(update, context)
+    return _RETURN
 
 # endregion Setting preferences
 
@@ -656,7 +771,8 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
             update.callback_query.edit_message_text(
                 utils.text_to_markdownv2("🥳 The form has submitted successfully! 🥳"),
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=_RETURN_KEYBOARD_MARKUP
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                    utils.text_to_markdownv2("Return to main menu"), callback_data=_RETURN_CALLBACK_DATA)]])
             )
             processor.get_browser().close_browser()
             context.user_data[_PROCESSOR] = processor.get_browser().get_link()
@@ -1300,14 +1416,22 @@ def main() -> None:
 
     # region Set up second level ConversationHandler (preference menu)
 
-    # TODO set up preference menu
+    pref_selection_handlers = [
+        CallbackQueryHandler(_select_global_pref, pattern="^" + _EDIT_PREF_GLOBAL + "$"),
+        CallbackQueryHandler(_pref_return, pattern="^" + _RETURN_CALLBACK_DATA + "$")
+    ]
+
     pref_conv_handler = ConversationHandler(
-        entry_points=[
-            # CallbackQueryHandler(_set_preference, pattern="^" + _SET_PREFERENCE + "$")
-        ],
-        states={},
+        entry_points=[CallbackQueryHandler(_pref_menu, pattern="^" + _SET_PREFERENCE + "$")],
+        states={
+            _SELECTING_ACTION: pref_selection_handlers,
+            _CONFIRM_PREF_GLOBAL: [CallbackQueryHandler(_confirm_global_pref, pattern=SavePrefMarkup.get_pattern())]
+        },
         fallbacks=[CommandHandler("stop", _stop_nested)],
-        map_to_parent={_STOPPING: ConversationHandler.END}
+        map_to_parent={
+            _RETURN: _SELECTING_ACTION,
+            _STOPPING: ConversationHandler.END
+        }
     )
 
     # endregion Set up second level ConversationHandler (preference menu)

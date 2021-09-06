@@ -15,7 +15,7 @@ TODO include dependencies
 from datetime import datetime
 import logging
 import math
-from src.markups import BaseMarkup, BaseOptionMarkup
+from markups import BaseMarkup, BaseOptionMarkup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from typing import Optional, Union
 
