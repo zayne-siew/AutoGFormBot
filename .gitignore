@@ -6,7 +6,5 @@
 **/.git
 **/.idea
 # Environment stuff
-**/Lib
-**/Scripts
-*.cfg
+**/venv
 .env
