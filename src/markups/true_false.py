@@ -79,7 +79,8 @@ class TFMarkup(BaseMarkup):
         elif value == cls._FALSE:
             return False
 
-    def get_markup(self, pos: Optional[str] = "YES", neg: Optional[str] = "NO") -> InlineKeyboardMarkup:
+    @classmethod
+    def get_markup(cls, pos: Optional[str] = "YES", neg: Optional[str] = "NO") -> InlineKeyboardMarkup:
         """Sets true/false values to the markup.
 
         :param pos: The positive confirmation value.
@@ -91,8 +92,8 @@ class TFMarkup(BaseMarkup):
             _logger.warning("TFMarkup pos=%s, neg=%s", pos, neg)
         return super().get_markup(("✅ {}".format(pos), "❌ {}".format(neg)),
                                   option_datas={
-                                      "✅ {}".format(pos): self._TRUE,
-                                      "❌ {}".format(neg): self._FALSE
+                                      "✅ {}".format(pos): cls._TRUE,
+                                      "❌ {}".format(neg): cls._FALSE
                                   })
 
 

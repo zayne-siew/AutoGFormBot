@@ -20,6 +20,7 @@ from functools import wraps
 import logging
 from selenium import webdriver
 from selenium.common.exceptions import (
+    ElementNotInteractableException,
     InvalidSessionIdException,
     NoSuchElementException,
     StaleElementReferenceException,
@@ -39,10 +40,6 @@ _logger = logging.getLogger(__name__)
 
 # Type-hinting for decorator functions
 _F = TypeVar('_F', bound=Callable[..., Any])
-
-# Define chromedriver path
-# _CHROMEDRIVER_PATH = os.environ["CHROMEDRIVER_PATH"]
-_CHROMEDRIVER_PATH = "D:/software/chromedriver.exe"  # TODO push to server?
 
 # Browser-based constants
 _NUM_MAX_RETRIES = 5
@@ -159,8 +156,8 @@ class Browser(object):
                     result = function(*args, **kwargs)
                     passed = True
 
-                except (InvalidSessionIdException, NoSuchElementException, StaleElementReferenceException,
-                        TimeoutException, WebDriverException):
+                except (ElementNotInteractableException, InvalidSessionIdException, NoSuchElementException,
+                        StaleElementReferenceException, TimeoutException, WebDriverException):
                     _logger.warning("An exception while using selenium library functions has been detected")
 
                     # Case 1: args[0] is the current Browser object

@@ -32,8 +32,8 @@ class BaseMarkup(AbstractMarkup):
 
         return "{} class instance".format(self.__class__.__name__)
 
-    @classmethod
-    def get_pattern(cls, *datas: str) -> str:
+    @staticmethod
+    def get_pattern(*datas: str) -> str:
         """Gets the pattern regex for matching in ConversationHandler.
 
         :param datas: The callback data(s) to format into pattern regex.
@@ -42,7 +42,8 @@ class BaseMarkup(AbstractMarkup):
 
         return "^(" + "|".join(datas) + ")$"
 
-    def get_markup(self, *option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
+    @staticmethod
+    def get_markup(*option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
             -> InlineKeyboardMarkup:
         """Initialises the markup with parsed options.
 

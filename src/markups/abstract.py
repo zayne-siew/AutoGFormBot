@@ -18,14 +18,15 @@ from typing import Any, Mapping, Optional, Tuple, Union
 class AbstractMarkup(ABC):
     """AbstractMarkup class as ABC for custom reusable Telegram inline keyboards."""
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def get_pattern(cls, *datas: str) -> str:
+    def get_pattern(*datas: str) -> str:
         """Gets the pattern regex for matching in ConversationHandler."""
         pass
 
+    @staticmethod
     @abstractmethod
-    def get_markup(self, *option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
+    def get_markup(*option_rows: Union[str, Tuple[str, ...]], option_datas: Optional[Mapping[str, str]] = None) \
             -> InlineKeyboardMarkup:
         """Initialises the markup with parsed options."""
         pass

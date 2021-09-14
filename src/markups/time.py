@@ -14,7 +14,6 @@ TODO include dependencies
 
 from datetime import datetime
 import logging
-import math
 from markups import BaseMarkup, BaseOptionMarkup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from typing import Optional, Union
@@ -33,19 +32,23 @@ class TimeMarkup(BaseOptionMarkup):
         _HOUR       The hour of the time picker to display.
         _MINUTE     The minute of the time picker to display.
         _SECOND     The second of the time picker to display.
+        _FROM       The date to display the time picker from.
     """
 
     # Define constants
-    _CHOOSE_HOUR = "CHOOSE HOUR"
-    _CHOOSE_MINUTE = "CHOOSE MINUTE"
-    _CHOOSE_SECOND = "CHOOSE SECOND"
-    _CHOOSE_AM_PM = "CHOOSE AM PM"
+    _MIN_SEC = "MIN_SEC"
+    _HOUR_GROUP = "HOUR_GROUP"
+    _CHOOSE_HOUR = "CHOOSE_HOUR"
+    _CHOOSE_MINUTE = "CHHOSE_MINUTE"
+    _CHOOSE_SECOND = "CHOOSE_SECOND"
+    _CHOOSE_AM_PM = "CHOOSE_AM_PM"
     _FINALISE = "FINALISE"
     _IGNORE = "IGNORE"
+    _FORMAT = "%H:$M"
 
     # region Constructors
 
-    def __init__(self, required: bool, hour: Optional[int] = None, minute: Optional[int] = None,
+    def __init__(self, required: bool, *, hour: Optional[int] = None, minute: Optional[int] = None,
                  second: Optional[int] = None) -> None:
         """Initialisation of TimeMarkup class.
 
@@ -80,6 +83,7 @@ class TimeMarkup(BaseOptionMarkup):
         self._HOUR = hour
         self._MINUTE = minute
         self._SECOND = second
+        self._FROM = None
         super().__init__(required, disable_warnings=True)
 
     def __repr__(self) -> str:
@@ -88,89 +92,42 @@ class TimeMarkup(BaseOptionMarkup):
         :return: The __repr__ string.
         """
 
-        return BaseMarkup.__repr__(self) + ": required={}, hour={}, minute={}, second={}" \
-            .format(self._REQUIRED, self._HOUR, self._MINUTE, self._SECOND)
+        return BaseMarkup.__repr__(self) + ": required={}, hour={}, minute={}, second={}, from={}" \
+            .format(self._REQUIRED, self._HOUR, self._MINUTE, self._SECOND,
+                    self._FROM.strftime(self._FORMAT) if self._FROM else None)
 
     def __str__(self) -> str:
-        """Overriden __str__ of TimeMarkup class.
+        """Overriden __str__ of TimeMarkup.
 
         :return: The __str__ string.
         """
 
-        return BaseMarkup.__str__(self) + " displaying {}:{}{}\nA response is{} required" \
+        return BaseMarkup.__str__(self) + " displaying {}:{}{}{}\nA response is{} required" \
             .format(self._HOUR, self._MINUTE, (":" + str(self._SECOND)) * bool(self._SECOND),
-                    " not" * (not self._REQUIRED))
+                    ", from " + self._FROM.strftime(self._FORMAT) if self._FROM else "", " not" * (not self._REQUIRED))
 
     # endregion Constructors
 
     # region Helper functions
 
-    def _individualise(self, start: int, stop: int) -> InlineKeyboardMarkup:
-        """Helper function to return an inline keyboard markup with individual numbers as buttons.
+    def _display(self, hour: int, minute: int) -> bool:
+        """Helper function to determine if a date value is after the _FROM date value.
 
-        The function groups buttons into threes and appends blank buttons at the end to 'pretty-print' them.
-        NOTE: The function is not meant to support large numbers of buttons.
-
-        :param start: The number to start with, inclusive.
-        :param stop: The number to stop at, inclusive.
-        :return: The inline keyboard markup.
+        :param hour: The hour of the date value.
+        :prarm minute: The minute of the date value.
+        :return: True if the date value is after the _FROM date value, False otherwise.
         """
 
         # Sanity check
-        if start > stop:
-            _logger.error("TimeMarkup _individualise parsed start=%d and stop=%d", start, stop)
-            return InlineKeyboardMarkup([[]])
+        if not 0 <= hour <= 23:
+            _logger.error("TimeMarkup _display parsing invalid hour: %d", hour)
+            return False
+        elif not 0 <= minute <= 59:
+            _logger.error("TimeMarkup _display parsing invalid minute: %d", minute)
+            return False
 
-        # Initialisation
-        n = stop - start + 1
-        blank = InlineKeyboardButton(" ", callback_data=self._IGNORE)
-
-        buttons = [[InlineKeyboardButton(str(start+i*3+j), callback_data=str(start+i*3+j)) for j in range(3)]
-                   for i in range(n//3)]
-        if n % 3 == 1:
-            buttons.append([blank, InlineKeyboardButton(str(stop), callback_data=str(stop)), blank])
-        elif n % 3 == 2:
-            buttons.append([InlineKeyboardButton(str(stop-1), callback_data=str(stop-1)), blank,
-                            InlineKeyboardButton(str(stop), callback_data=str(stop))])
-        return InlineKeyboardMarkup(buttons)
-
-    @staticmethod
-    def _group(*, time_hour: Optional[bool] = False, duration_hour: Optional[bool] = False,
-               minute_second: Optional[bool] = False) -> InlineKeyboardMarkup:
-        """Helper function to return an inline keyboard markup with numbers grouped for visualisation.
-
-        This function is only designed to handle one of three scenarios:
-            - Hour range from 1-12 (12-hour format time)
-            - Hour range from 0-72 (duration)
-            - Minute/second range from 0-59
-        NOTE: Exactly one of these three scenarios must be specified via the flag parameters.
-
-        :param time_hour: Flag to indicate handling hour range from 1-12.
-        :param duration_hour: Flag to indicate handling duration range from 0-73.
-        :param minute_second: Flag to indicate handling minute/second range from 0-59.
-        :return: The inline keyboard markup.
-        """
-
-        # Sanity check
-        if not ((time_hour and not duration_hour and not minute_second) or
-                (not time_hour and duration_hour and not minute_second) or
-                (not time_hour and not duration_hour and minute_second)):
-            _logger.error("TimeMarkup _group time_hour=%s duration_hour=%s minute_second=%s not supported",
-                          time_hour, duration_hour, minute_second)
-            return InlineKeyboardMarkup([[]])
-
-        n = 12 if time_hour else 72 if duration_hour else 59
-        m = math.ceil(n/6)  # Split the numbers into 6 even groups
-        keyboard = []
-        for i in range(3):
-            button_row = []
-            for j in range(2):
-                _min = (2 * i + j) * m + 1 * time_hour
-                _max = min((2 * i + j + 1) * m - 1 * (not time_hour), n)
-                button_row.append(InlineKeyboardButton("{} - {}".format(_min, _max),
-                                                       callback_data="{}-{}".format(_min, _max)))
-            keyboard.append(button_row)
-        return InlineKeyboardMarkup(keyboard)
+        return self._FROM is None or \
+            datetime(self._FROM.year, self._FROM.month, self._FROM.day, hour, minute) >= self._FROM
 
     @classmethod
     def _is_option(cls, option: str) -> bool:
@@ -180,23 +137,109 @@ class TimeMarkup(BaseOptionMarkup):
         :return: Flag to indicate if the option is defined.
         """
 
-        if option not in (cls._SKIP, cls._CHOOSE_HOUR, cls._CHOOSE_MINUTE, cls._CHOOSE_SECOND, cls._CHOOSE_AM_PM,
-                          cls._FINALISE, cls._IGNORE):
-            try:
-                if "-" in option:
-                    # Expecting <1/2-digit number>-<1/2-digit number>
-                    x, y = option.split("-")
-                    x, y = int(x), int(y)
-                else:
-                    # Expecting a 1/2-digit number
-                    x, y = int(option), 0
-                if not (0 <= x <= 99 and 0 <= y <= 99):
-                    raise ValueError
-            except ValueError:
-                return False
-        return True
+        def _valid_int(*args: str) -> bool:
+            """Helper function to check if a string is a valid 2-digit positive integer.
+
+            :param args: The strings to check.
+            :return: True if all strings are valid, False otherwise.
+            """
+
+            # Sanity check
+            if len(args) == 0:
+                _logger.info("TimeMarkup _valid_int No values received")
+
+            for arg in args:
+                try:
+                    if not 0 <= int(arg) <= 99:
+                        raise ValueError
+                except ValueError:
+                    return False
+            return True
+
+        if option in (cls._SKIP, cls._CHOOSE_HOUR, cls._CHOOSE_MINUTE, cls._CHOOSE_SECOND,
+                      cls._CHOOSE_AM_PM, cls._FINALISE, cls._IGNORE):
+            return True
+        elif " " in option and (cls._MIN_SEC in option or cls._HOUR_GROUP in option):
+            args = option.split(" ")
+            return 2 <= len(args) <= 3 and _valid_int(*args[1:])
+        else:
+            return _valid_int(option)
 
     # endregion Helper functions
+
+    # region Markup functions
+
+    def _min_sec(self, start: int) -> InlineKeyboardMarkup:
+        """Helper function to display 10 minute/second values from a certain value.
+
+        :param start: The start value (inclusive) to display.
+        :return: The inline keyboard markup instance.
+        """
+
+        markup = [[InlineKeyboardButton(str(start + i * 2 + j), callback_data=str(start + i * 2 + j))
+                   if self._SECOND is not None or self._display(self._HOUR, start + i * 2 + j)
+                   else InlineKeyboardButton(" ", callback_data=self._IGNORE) for j in range(2)] for i in range(5)]
+        return InlineKeyboardMarkup(markup)
+
+    def _time_hour(self, pm: bool) -> InlineKeyboardMarkup:
+        """Helper function to display 1-12 as time hour values.
+
+        :param pm: Flag to indicate if the hour values are AM or PM.
+        :return: The inline keyboard markup instance.
+        """
+
+        markup = [[InlineKeyboardButton("{}{}".format(str(i * 2 + j + 12 * int(i == j == 0)), "PM" if pm else "AM"),
+                                        callback_data=str(i * 2 + j + 12 * int(pm)))
+                   if self._display(i * 2 + j + 12 * int(pm), self._MINUTE)
+                   else InlineKeyboardButton(" ", callback_data=self._IGNORE) for j in range(2)] for i in range(6)]
+        return InlineKeyboardMarkup(markup)
+
+    def _duration_hour(self, start: int, stop: int) -> InlineKeyboardMarkup:
+        """Helper function to display duration hour values within a certain range.
+
+        :param start: The start value (inclusive) to display.
+        :param stop: The stop value (inclusive) to display. Expecting either start - stop = 11 or 12.
+                     If the stop value is not valid, the function defaults to start + 11.
+        :return: The inline keyboard markup instance.
+        """
+
+        # Sanity check
+        if not 11 <= stop - start <= 12:
+            _logger.warning("TimeMarkup _duration_hour invalid start and stop parsed: start=%d, stop=%d", start, stop)
+            stop = start + 11
+
+        blank = InlineKeyboardButton(" ", callback_data=self._IGNORE)
+        markup = [[InlineKeyboardButton(str(start + i * 3 + j), callback_data=str(start + i * 3 + j))
+                   for j in range(3)] for i in range(4)]
+        if stop - start == 12:
+            markup.append([blank, InlineKeyboardButton(str(stop), callback_data=str(stop)), blank])
+        return InlineKeyboardMarkup(markup)
+
+    def _min_sec_group(self) -> InlineKeyboardMarkup:
+        """Helper function to display 6 groups of minute/second values.
+
+        :return: The inline keyboard markup instance.
+        """
+
+        markup = [[InlineKeyboardButton("{} - {}".format(10 * (i * 2 + j), 10 * (i * 2 + j + 1) - 1),
+                                        callback_data="{} {}".format(self._MIN_SEC, 10 * (i * 2 + j)))
+                   if self._SECOND is not None or self._display(self._HOUR, 10 * (i * 2 + j + 1) - 1)
+                   else InlineKeyboardButton(" ", callback_data=self._IGNORE) for j in range(2)] for i in range(3)]
+        return InlineKeyboardMarkup(markup)
+
+    def _hour_group(self) -> InlineKeyboardMarkup:
+        """Helper function to display 6 groups of duration hour values.
+
+        :return: The inline keyboard markup instance.
+        """
+
+        groups = ((0, 11), (12, 23), (24, 35), (36, 47), (48, 59), (60, 72))
+        markup = [[InlineKeyboardButton("{} - {}".format(*groups[i * 2 + j]),
+                                        callback_data="{} {} {}".format(self._HOUR_GROUP, *groups[i * 2 + j]))
+                   for j in range(2)] for i in range(3)]
+        return InlineKeyboardMarkup(markup)
+
+    # endregion Markup functions
 
     # region Getters
 
@@ -207,8 +250,10 @@ class TimeMarkup(BaseOptionMarkup):
         :return: The pattern regex.
         """
 
-        return "^(" + "|".join((cls._SKIP, cls._CHOOSE_HOUR, cls._CHOOSE_MINUTE, cls._CHOOSE_SECOND, cls._CHOOSE_AM_PM,
-                                cls._FINALISE, cls._IGNORE)) + "|\\d{1,2}(-\\d{1,2})?)$"
+        num_regex = "\\d{1,2}"
+        return "^(" + "|".join((cls._SKIP, cls._FINALISE, cls._IGNORE, cls._CHOOSE_HOUR, cls._CHOOSE_MINUTE,
+                                cls._CHOOSE_SECOND, cls._CHOOSE_AM_PM, "{} {}".format(cls._MIN_SEC, num_regex),
+                                "{0} {1} {1}".format(cls._HOUR_GROUP, num_regex), num_regex)) + ")$"
 
     def get_markup(self, *_) -> InlineKeyboardMarkup:
         """Initialises the markup with parsed options.
@@ -254,20 +299,24 @@ class TimeMarkup(BaseOptionMarkup):
 
     # endregion Getters
 
+    def set_from(self, from_date: datetime) -> None:
+        """Sets the date to display the time picker from.
+
+        :param from_date: The date to display the time picker from.
+        """
+
+        self._FROM = from_date
+        if self._HOUR < from_date.hour:
+            self._HOUR = from_date.hour
+            self._MINUTE = from_date.minute
+        elif self._MINUTE < from_date.minute:
+            self._MINUTE = from_date.minute
+
     def perform_action(self, option: str) -> Optional[Union[InlineKeyboardMarkup, str]]:
         """Perform action according to the callback data.
 
         :param option: The option received from the callback data.
-        :return: If the callback data is _IGNORE or invalid, return None.
-                 Else if the callback data is _CHOOSE_AM_PM,
-                    return the markup instance after toggling between the 'AM' and 'PM' values.
-                 Else if the callback data is _CHOOSE_HOUR or _CHOOSE_MINUTE or _CHOOSE_SECOND,
-                    return the markup instance of all the possible values to choose from.
-                 Else if the callback data is _FINALISE,
-                    return the selected time in the format '%H:%M' or '%H:%M:%S'.
-                 Else if the callback data is of the format '{}-{}',
-                    return the markup instance of all the individual values to choose from.
-                 Else, return the main markup instance with the new selected value.
+        :return: The relevant action as determined by the callback data.
         """
 
         result = None
@@ -277,24 +326,27 @@ class TimeMarkup(BaseOptionMarkup):
             pass
         elif option == self._SKIP:
             result = self.get_required_warning() if self._REQUIRED else self._SKIP
-        elif option == self._CHOOSE_AM_PM:
-            self._HOUR = (self._HOUR + 12) % 24
-            result = self.get_markup()
         elif option == self._CHOOSE_HOUR:
+            result = self._time_hour(self._HOUR >= 12) if self._SECOND is None else self._hour_group()
             self._HOUR = -1
-            result = self._group(time_hour=True) if self._SECOND is None else self._group(duration_hour=True)
         elif option == self._CHOOSE_MINUTE:
             self._MINUTE = -1
-            result = self._group(minute_second=True)
+            result = self._min_sec_group()
         elif option == self._CHOOSE_SECOND:
             self._SECOND = -1
-            result = self._group(minute_second=True)
+            result = self._min_sec_group()
+        elif option == self._CHOOSE_AM_PM:
+            if self._display((self._HOUR + 12) % 24, self._MINUTE):
+                self._HOUR = (self._HOUR + 12) % 24
+                result = self.get_markup()
+        elif self._MIN_SEC in option:
+            result = self._min_sec(int(option[option.index(" ") + 1:]))
+        elif self._HOUR_GROUP in option:
+            start, stop = option.split(" ")[1:]
+            result = self._duration_hour(int(start), int(stop))
         elif option == self._FINALISE:
             result = "{:02d}:{:02d}{}".format(self._HOUR, self._MINUTE,
                                               "" if self._SECOND is None else ":{:02d}".format(self._SECOND))
-        elif "-" in option:
-            start, stop = option.split("-")
-            return self._individualise(int(start), int(stop))
         else:
             # Assign the values back to the main markup menu
             if self._HOUR == -1:

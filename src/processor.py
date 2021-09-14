@@ -353,7 +353,7 @@ class FormProcessor(object):
         # Handle scraping of next section
         if not to_submit:
             _logger.info("FormProcessor is scraping the next section of the Google Form")
-            time.sleep(1)  # Allow browser to finish loading the page, in case
+            time.sleep(2)  # Allow browser to finish loading the page, in case
             questions = self._BROWSER.get_browser().find_elements_by_class_name(question_class_name)
 
         return questions

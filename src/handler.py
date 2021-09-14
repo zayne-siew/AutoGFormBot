@@ -23,9 +23,11 @@ TODO include dependencies
 
 # External imports
 from collections import OrderedDict
+from datetime import datetime
 from functools import wraps
 import logging
 import os
+import pytz
 import random
 import re
 from telegram import (
@@ -44,6 +46,7 @@ from telegram.ext import (
     CommandHandler,
     ConversationHandler,
     Filters,
+    Job,
     MessageHandler,
     Updater
 )
@@ -56,6 +59,8 @@ from markups import (
     BaseOptionMarkup,
     DateMarkup,
     DatetimeMarkup,
+    FreqCustomMarkup,
+    FreqMarkup,
     MenuMarkup,
     SavePrefMarkup,
     TimeMarkup,
@@ -85,12 +90,13 @@ _logger = logging.getLogger(__name__)
 # Type-hinting for decorator functions
 _F = TypeVar('_F', bound=Callable[..., Any])
 
-# Telegram bot states
+# region Telegram bot states
+
 (
     # Main menu states
-    _OBTAINING_LINK,  # Prompting user for Google Form link
-    _SET_PREFERENCE,  # Set preference option in main menu
-    _MAIN_MENU,  # Prompting user for action to return to main menu
+    _OBTAINING_LINK,  # Prompting user for Google Form link / main menu handling
+    _SET_PREFERENCE,  # Set preference option in preference menu
+    _SET_REMINDER,  # Schedule reminders in reminder menu
     _RESET,  # Reset option in main menu
     _CONFIRM_RESET,  # Prompting user to confirm reset
 
@@ -107,18 +113,28 @@ _F = TypeVar('_F', bound=Callable[..., Any])
     _SELECT_QUESTION,  # User selection of question to set local preference for
     _CONFIRM_PREF_GLOBAL,  # User confirmation of global preference
     _CONFIRM_PREF_LOCAL,  # User confirmation of local preference
-    _CANCEL_SAVE,  # Return to preference menu
 
     # Reminder menu states
-    _REMIND_MENU,
+    _ADD_JOB,  # User selection to schedule new reminder
+    _CHOOSE_FREQ,  # User selection of submission frequency
+    _CUSTOM_FREQ,  # User customisation of submission frequency
+    _SELECT_START,  # User selection of job starting date and time
+    _CONFIRM_ADD,  # User confirmation to add job
+    _REMOVE_JOB,  # User selection to remove job
+    _SELECT_JOB,  # User selection of job to remove
+    _CONFIRM_REMOVE,  # User confirmation to remove job
 
     # Miscellaneous
     _SELECTING_ACTION,  # Prompting user for action in main menu
     _STOPPING,  # Force stop in nested ConversationHandlers
+    _CANCEL,  # Return to second-level menu in nested ConversationHandlers
     _RETURN  # Return to main menu from nested ConversationHandlers
-) = utils.generate_random_signatures(20)
+) = utils.generate_random_signatures(27)
 
-# User data constants
+# endregion Telegram bot states
+
+# region User data constants
+
 (
     # For storing preference-related data
     _SAVE_PREFS,  # For storing of all save preferences
@@ -129,14 +145,20 @@ _F = TypeVar('_F', bound=Callable[..., Any])
 
     # For Google Form processing
     _PROCESSOR,  # For storing of FormProcessor object
-    _CURRENT_QUESTION,  # For storing of processed question to save between Telegram bot states
-    _CURRENT_MARKUP,  # For storing of markup that is used to handle user input
+    _CURRENT_QUESTION,  # For storing of processed question
     _CURRENT_ANSWER,  # For storing of user-inputted answer(s)
 
+    # For scheduling of jobs
+    _CURRENT_JOB,  # For processing of scheduled/scheduling jobs
+    _CURRENT_UPDATE,  # For storing of Google Form processing update instance
+
     # Miscellaneous
+    _CURRENT_MARKUP,  # For storing of markup that is used to handle user input
     _CURRENT_PREF_KEY,  # For handling of local save preference
     _GARBAGE_INPUT_COUNTER  # For handling of unrecognised input
-) = utils.generate_random_signatures(11)
+) = utils.generate_random_signatures(13)
+
+# endregion User data constants
 
 # region Garbage echoes
 
@@ -219,12 +241,36 @@ def _clear_cache(context: CallbackContext, keep_save_pref: Optional[bool] = True
     if keep_save_pref and _GLOBAL_SAVE_PREF in context.user_data.get(_SAVE_PREFS, {}).keys():
         save_pref = context.user_data.get(_SAVE_PREFS).get(_GLOBAL_SAVE_PREF)
 
-    # Clear cache and restore
+    # Clear cache and stop all jobs
     if _PROCESSOR in context.user_data.keys() and isinstance(context.user_data.get(_PROCESSOR), FormProcessor):
         context.user_data.get(_PROCESSOR).reset()
     context.user_data.clear()
+    for job in context.job_queue.jobs():
+        job.schedule_removal()
+
+    # Restore global save preference
     if save_pref:
         context.user_data[_SAVE_PREFS] = {_GLOBAL_SAVE_PREF: save_pref}
+
+
+def _update_job_context(context: CallbackContext) -> None:
+    """Helper function to update the CallbackContext instance of all scheduled jobs.
+
+    :param context: The CallbackContext instance to use for updating.
+    """
+
+    for job in context.job_queue.jobs():
+        try:
+            update, job_context = job.context
+            assert isinstance(update, Update)
+            assert isinstance(context.user_data, dict)
+        except ValueError:
+            _logger.error("_update_job_context Job context not recognised: %s", job.context)
+            return
+        except AssertionError:
+            _logger.error("_update_job_context AssertionError detected, please debug")
+            return
+        job.context = (update, context)
 
 # endregion Helper functions
 
@@ -283,12 +329,12 @@ def _main_menu(update: Update, context: CallbackContext) -> str:
     # region Initialise main menu
 
     reply_markup = BaseMarkup().get_markup(
-        ("⚙️ Set preference", "⏰ Set reminders"),
+        ("⚙️ Set preference", "⏰ Schedule jobs"),
         ("🔁 Reset", "👋 Exit"),
         "📡 Submit form now",
         option_datas={
             "⚙️ Set preference": _SET_PREFERENCE,
-            "⏰ Set reminders": _REMIND_MENU,
+            "⏰ Schedule jobs": _SET_REMINDER,
             "🔁 Reset": _RESET,
             "👋 Exit": _STOPPING,
             "📡 Submit form now": _OBTAIN_QUESTION
@@ -379,7 +425,7 @@ def _pref_menu(update: Update, _: CallbackContext) -> str:
     try:
         assert update.callback_query
     except AssertionError as error:
-        _logger.error("_set_preference AssertionError detected while trying to initialise:\n%s", error)
+        _logger.error("_pref_menu AssertionError detected while trying to initialise:\n%s", error)
         if update.message:
             utils.send_bug_message(update.message)
         return _STOPPING
@@ -445,7 +491,7 @@ def _select_global_pref(update: Update, context: CallbackContext) -> str:
     text += "Please select your general save preference:"
     update.callback_query.edit_message_text(utils.text_to_markdownv2(text),
                                             parse_mode=ParseMode.MARKDOWN_V2,
-                                            reply_markup=SavePrefMarkup().get_markup())
+                                            reply_markup=SavePrefMarkup.get_markup())
     return _CONFIRM_PREF_GLOBAL
 
 
@@ -484,6 +530,7 @@ def _confirm_global_pref(update: Update, context: CallbackContext) -> str:
     if _GLOBAL_SAVE_PREF not in context.user_data.get(_SAVE_PREFS, {}).keys():
         context.user_data[_SAVE_PREFS] = {_GLOBAL_SAVE_PREF: None}
     context.user_data.get(_SAVE_PREFS)[_GLOBAL_SAVE_PREF] = result
+    _update_job_context(context)
     return _pref_menu(update, context)
 
 
@@ -517,7 +564,7 @@ def _select_local_pref(update: Update, context: CallbackContext) -> str:
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data=_SET_PREFERENCE)]])
         )
-        return _CANCEL_SAVE
+        return _CANCEL
 
     # Format saved question preference keys for selection
     pref_keys = list(context.user_data.get(_SAVE_PREFS).get(_LOCAL_SAVE_PREF).keys())
@@ -597,7 +644,7 @@ def _question_pref(update: Update, context: CallbackContext) -> str:
     text += "Please select your save preference for this question:"
     update.callback_query.edit_message_text(utils.text_to_markdownv2(text),
                                             parse_mode=ParseMode.MARKDOWN_V2,
-                                            reply_markup=SavePrefMarkup().get_markup())
+                                            reply_markup=SavePrefMarkup.get_markup())
     return _CONFIRM_PREF_LOCAL
 
     # endregion Formatting output
@@ -639,6 +686,8 @@ def _confirm_local_pref(update: Update, context: CallbackContext) -> str:
     # Save local preference
     context.user_data.get(_SAVE_PREFS).get(_LOCAL_SAVE_PREF).get(
         context.user_data.get(_CURRENT_PREF_KEY))[_PREF_KEY] = result
+    _ = context.user_data.pop(_CURRENT_PREF_KEY)
+    _update_job_context(context)
     return _pref_menu(update, context)
 
 
@@ -655,6 +704,556 @@ def _pref_return(update: Update, context: CallbackContext) -> str:
     return _RETURN
 
 # endregion Setting preferences
+
+# region Creating reminders
+
+
+@_reset_garbage_counter
+def _remind_menu(update: Update, _: CallbackContext) -> str:
+    """Handles the reminder menu.
+
+    :param update: The update instance to handle the reminder menu.
+    :return: The _SELECTING_ACTION state for handling of menu options.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query
+    except AssertionError as error:
+        _logger.error("_remind_menu AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        return _STOPPING
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # region Initialise remind menu
+
+    reply_markup = BaseMarkup().get_markup(
+        "➕ Schedule new submission job ➕",
+        "🗑️ Remove current submission job 🗑️",
+        "🔙 Return to main menu 🔙",
+        option_datas={
+            "➕ Schedule new submission job ➕": _ADD_JOB,
+            "🗑️ Remove current submission job 🗑️": _REMOVE_JOB,
+            "🔙 Return to main menu 🔙": _RETURN_CALLBACK_DATA
+        }
+    )
+    text = utils.text_to_markdownv2(
+        "⏰ SCHEDULER MENU ⏰\n\n"
+        "➕ Schedule a new submission job.\n"
+        "🗑️ Remove a current submission job.\n"
+        "🔙 Return to the main menu.\n\n"
+        "Please select an option:"
+    )
+
+    # endregion Initialise remind menu
+
+    update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+    return _SELECTING_ACTION
+
+
+@_reset_garbage_counter
+def _remind_return(update: Update, context: CallbackContext) -> str:
+    """Handles returning from reminder menu to main menu.
+
+    :param update: The update instance to return to the main menu.
+    :param context: The CallbackContext instance to return to the main menu.
+    :return: The _RETURN state to return to the main menu.
+    """
+
+    _ = _main_menu(update, context)
+    return _RETURN
+
+
+def _auto_submit(context: CallbackContext) -> None:
+    """Function to be called by each scheduled job to auto-submit Google Form.
+
+    :param context: The CallbackContext instance to submit the Google Form.
+    """
+
+    # region Initialisation
+
+    update = None
+    try:
+        update, job_context = context.job.context
+        assert isinstance(update, Update)
+        assert update.callback_query
+        assert isinstance(job_context, CallbackContext)
+        assert isinstance(job_context.user_data, dict)
+    except AssertionError as error:
+        _logger.error("_auto_submit AssertionError detected while trying to initialise:\n%s", error)
+        if isinstance(update, Update):
+            if update.message:
+                utils.send_bug_message(update.message)
+            elif update.callback_query:
+                utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+
+    # endregion Initialisation
+
+    # Check if another submission is currently being processed
+    if isinstance(job_context.user_data.get(_PROCESSOR), FormProcessor):
+        _logger.info("_auto_submit Scheduled job has been cancelled due to active submission attempt.")
+        return
+
+    # Attemot to auto-submit
+    state = _obtain_question(update, job_context)
+    if state == _STOPPING:
+        try:
+            update.callback_query.edit_message_text(utils.text_to_markdownv2("🚨 JOB ENCOUNTERED ERROR 🚨\n"
+                                                                             "Please try again later."),
+                                                    parse_mode=ParseMode.MARKDOWN_V2,
+                                                    reply_markup=InlineKeyboardMarkup([[
+                                                        InlineKeyboardButton("OK", callback_data=_SET_REMINDER)]]))
+        except BadRequest:
+            _logger.info("_auto_submit Error message already displayed.")
+
+# region Adding job
+
+
+@_reset_garbage_counter
+def _select_frequency(update: Update, context: CallbackContext) -> str:
+    """Handles selection of reminder frequency.
+
+    :param update: The update instance to handle selection of reminder frequency.
+    :param context: The CallbackContext instance to handle selection of reminder frequency.
+    :return: The _CHOOSE_FREQ state for further processing.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query
+    except AssertionError as error:
+        _logger.error("_select_frequency AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        return _STOPPING
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    if _CURRENT_UPDATE not in context.user_data.keys():
+        update.callback_query.edit_message_text(utils.text_to_markdownv2("⚠️ NO SUBMISSION DETECTED ⚠️\n"
+                                                                         "Please submit the form at least once first!"),
+                                                parse_mode=ParseMode.MARKDOWN_V2,
+                                                reply_markup=InlineKeyboardMarkup(
+                                                    [[InlineKeyboardButton("OK", callback_data=_SET_REMINDER)]]))
+        return _CANCEL
+    else:
+        update.callback_query.edit_message_text(utils.text_to_markdownv2("How often should this job be run?"),
+                                                parse_mode=ParseMode.MARKDOWN_V2,
+                                                reply_markup=FreqMarkup.get_markup())
+        return _CHOOSE_FREQ
+
+
+@_reset_garbage_counter
+def _fixed_frequency(update: Update, context: CallbackContext) -> str:
+    """Displays menu to select start date.
+
+    :param update: The update instance to display menu to select start date.
+    :param context: The CallbackContext instance to display menu to select start date.
+    :return: The _SELECT_START state to handle start date selection.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query
+        assert _CURRENT_MARKUP not in context.user_data.keys()
+        assert _CURRENT_JOB not in context.user_data.keys()
+    except AssertionError as error:
+        _logger.error("_fixed_frequency AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    context.user_data[_CURRENT_JOB] = update.callback_query.data
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    markup = DatetimeMarkup(True, from_date=datetime.now())
+    context.user_data[_CURRENT_MARKUP] = markup
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("Please select your start date and time:"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=markup.get_markup())
+    return _SELECT_START
+
+
+@_reset_garbage_counter
+def _custom_frequency(update: Update, context: CallbackContext) -> str:
+    """Displays menu to customise reminder frequency.
+
+    :param update: The update instance to display menu to customise reminder frequency.
+    :param context: The CallbackContext instance to display menu to customise reminder frequency.
+    :return: The _CUSTOM_FREQ state to handle start date.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query
+        assert _CURRENT_MARKUP not in context.user_data.keys()
+    except AssertionError as error:
+        _logger.error("_custom_frequency AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    markup = FreqCustomMarkup()
+    context.user_data[_CURRENT_MARKUP] = markup
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("Please select your frequency.\n"
+                                                                     "(minimum frequency is 5 minutes)"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=markup.get_markup())
+    return _CUSTOM_FREQ
+
+
+@_reset_garbage_counter
+def _handle_custom(update: Update, context: CallbackContext) -> str:
+    """Handles reminder frequency customisation.
+
+    :param update: The update instance to handle reminder frequency customisation.
+    ;param context: The CallbackContext instance to handle reminder frequency customisation.
+    :return: THe relevant state for further processing.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query.data
+        assert isinstance(context.user_data.get(_CURRENT_MARKUP), FreqCustomMarkup)
+        assert _CURRENT_JOB not in context.user_data.keys()
+    except AssertionError as error:
+        _logger.error("_handle_custom AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    result = context.user_data.get(_CURRENT_MARKUP).perform_action(update.callback_query.data)
+    if result == FreqCustomMarkup.get_invalid_message():
+        update.callback_query.answer(result)
+        return _CUSTOM_FREQ
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # Handle result from FreqCustomMarkup
+    if isinstance(result, InlineKeyboardMarkup):
+        update.callback_query.edit_message_text(utils.text_to_markdownv2(update.callback_query.message.text),
+                                                parse_mode=ParseMode.MARKDOWN_V2,
+                                                reply_markup=result)
+    elif isinstance(result, str):
+        context.user_data[_CURRENT_JOB] = "Submit every " + result
+        markup = DatetimeMarkup(True, from_date=datetime.now())
+        context.user_data[_CURRENT_MARKUP] = markup
+        update.callback_query.edit_message_text(utils.text_to_markdownv2("Please select your start date and time:"),
+                                                parse_mode=ParseMode.MARKDOWN_V2,
+                                                reply_markup=markup.get_markup())
+        return _SELECT_START
+    return _CUSTOM_FREQ
+
+
+@_reset_garbage_counter
+def _start_date(update: Update, context: CallbackContext) -> str:
+    """Handles the selection of job start date.
+
+    :param update: The update instance to handle the selection of job start date.
+    :param context: The CallbackContext instance to handle the selection of job start date.
+    :return: The relevant state for futher processing.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query.data
+        assert isinstance(context.user_data.get(_CURRENT_MARKUP), DatetimeMarkup)
+        assert isinstance(context.user_data.get(_CURRENT_JOB), str)
+    except AssertionError as error:
+        _logger.error("_start_date AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+
+    # endregion Initialisation
+
+    # Obtain result
+    result = context.user_data.get(_CURRENT_MARKUP).perform_action(update.callback_query.data)
+    if result == DatetimeMarkup.get_required_warning():
+        update.callback_query.answer(result)
+        return _SELECT_START
+
+    # Handle result from DatetimeMarkup
+    if isinstance(result, InlineKeyboardMarkup):
+        update.callback_query.edit_message_text(utils.text_to_markdownv2(update.callback_query.message.text),
+                                                parse_mode=ParseMode.MARKDOWN_V2,
+                                                reply_markup=result)
+    elif isinstance(result, str):
+        job_name = "{}, starting from {}".format(context.user_data.get(_CURRENT_JOB), result)
+        if context.job_queue.get_jobs_by_name(job_name):
+            update.callback_query.answer("ALERT: An identical job already exists!")
+            return _SELECT_START
+        update.callback_query.answer()
+        _ = context.user_data.pop(_CURRENT_MARKUP)
+        context.user_data[_CURRENT_JOB] = job_name
+        update.callback_query.edit_message_text(utils.text_to_markdownv2("Please confirm to schedule this job:\n"
+                                                                         "{}".format(job_name)),
+                                                parse_mode=ParseMode.MARKDOWN_V2,
+                                                reply_markup=TFMarkup.get_markup())
+        return _CONFIRM_ADD
+    update.callback_query.answer()
+    return _SELECT_START
+
+
+@_reset_garbage_counter
+def _confirm_add(update: Update, context: CallbackContext) -> str:
+    """Handles confirmation of job to schedule.
+
+    :param update: The update instance to confirm scheduled job.
+    :param context: The CallbackContext instance to confirm scheduled job.
+    :return: The _CANCEL state to go back to the reminder menu.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query.data
+        assert isinstance(context.user_data.get(_CURRENT_UPDATE), Update)
+        job_name = context.user_data.get(_CURRENT_JOB)
+        assert isinstance(job_name, str)
+        freq, start = job_name.split(", starting from ")
+    except AssertionError as error:
+        _logger.error("_confirm_add AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    except ValueError:
+        _logger.error("_confirm_add Current job not recognised: %s", context.user_data.get(_CURRENT_JOB))
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    result = update.callback_query.data
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # region Sanity check
+
+    # Ensure callback data is valid
+    if TFMarkup.confirm(result) is None:
+        _logger.error("_confirm_add Invalid callback data received: %s", result)
+        utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+
+    # Ensure start date is valid
+    try:
+        start_datetime = datetime.strptime(start, "%Y-%m-%d %H:%M").astimezone(pytz.utc)
+    except ValueError:
+        _logger.error("_confirm_add Start date not recognised: %s", start)
+        utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+
+    # endregion Sanity check
+
+    # Handle confirmation
+    result = TFMarkup.confirm(result)
+    if result:
+        if freq == FreqMarkup.get_hourly():
+            _ = context.job_queue.run_repeating(_auto_submit, 60 * 60, first=start_datetime, name=job_name,
+                                                context=(context.user_data.get(_CURRENT_UPDATE), context))
+        elif freq == FreqMarkup.get_daily():
+            _ = context.job_queue.run_daily(_auto_submit, start_datetime.time(), name=job_name,
+                                            context=(context.user_data.get(_CURRENT_UPDATE), context))
+        elif freq == FreqMarkup.get_weekly():
+            _ = context.job_queue.run_repeating(_auto_submit, 60 * 60 * 24 * 7, first=start_datetime, name=job_name,
+                                                context=(context.user_data.get(_CURRENT_UPDATE), context))
+        elif freq == FreqMarkup.get_monthly():
+            _ = context.job_queue.run_monthly(_auto_submit, start_datetime.time(), start_datetime.day, name=job_name,
+                                              context=(context.user_data.get(_CURRENT_UPDATE), context),
+                                              day_is_strict=False)
+        else:
+            try:
+                days, hours, minutes = re.findall(r"[0-9]+", freq)
+                if not FreqCustomMarkup.valid_freq(int(days), int(hours), int(minutes)):
+                    raise ValueError
+            except ValueError:
+                _logger.error("_confirm_add Frequency not recognised: %s", freq)
+                utils.send_bug_message(update.callback_query.message)
+                return _STOPPING
+            _ = context.job_queue.run_repeating(_auto_submit, 60 * ((int(days) * 24 + int(hours)) * 60 + int(minutes)),
+                                                first=start_datetime, name=job_name,
+                                                context=(context.user_data.get(_CURRENT_UPDATE), context))
+
+    # Final preparations
+    _ = context.user_data.pop(_CURRENT_JOB)
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("🥳 Job successfully scheduled! 🥳" if result else
+                                                                     "Scheduling of job aborted!"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=InlineKeyboardMarkup([[
+                                                InlineKeyboardButton("OK", callback_data=_SET_REMINDER)]]))
+    return _CANCEL
+
+# endregion Adding job
+
+# region Removing job
+
+
+@_reset_garbage_counter
+def _confirm_removal(update: Update, context: CallbackContext) -> str:
+    """Handles confirmation of removal of reminder.
+
+    :param update: The update instance to handle confirmation of removal of reminder.
+    :param context: The CallbackContext instance to handle confirmation of removal of reminder.
+    :return: The _CONFIRM_REMOVE state to handle the confirmation input.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query.data
+        assert _CURRENT_JOB not in context.user_data.keys()
+    except AssertionError as error:
+        _logger.error("_confirm_removal AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    result = update.callback_query.data
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # Check if selected reminder exists
+    jobs = context.job_queue.get_jobs_by_name(result)
+    if len(jobs) == 0:
+        _logger.error("_confirm_removal No jobs found with name: %s", result)
+        utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    elif len(jobs) > 1:
+        _logger.warning("_confirm removal Multiple jobs found with name %s, selecting first one. Please debug", result)
+
+    # Display confirmation
+    context.user_data[_CURRENT_JOB] = jobs[0]
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("⚠️ IRREVERSIBLE ACTION WARNING ⚠️\n"
+                                                                     "Are you sure you want to remove this job?"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=TFMarkup.get_markup())
+    return _CONFIRM_REMOVE
+
+
+# Dynamic callback handler
+remind_handler = CallbackQueryHandler(_confirm_removal)
+
+
+@_reset_garbage_counter
+def _select_reminder(update: Update, context: CallbackContext) -> str:
+    """Handles selection of scheduled reminder to remove.
+
+    :param update: The update instance to handle selection of reminder.
+    :param context: The CallbackContext instance to handle selection of reminder.
+    :return: The _SELECTING_REMINDER state for removal confirmation.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query
+    except AssertionError as error:
+        _logger.error("_select_reminder AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        return _STOPPING
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # Check if there are scheduled reminders
+    jobs = context.job_queue.jobs()
+    if len(jobs) == 0:
+        update.callback_query.edit_message_text(
+            utils.text_to_markdownv2("⚠️ NO REMINDERS DETECTED ⚠️\n"
+                                     "There are no more reminders to remove!"),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data=_SET_REMINDER)]])
+        )
+        return _CANCEL
+
+    # Format and output all jobs
+    remind_handler.pattern = re.compile("^(" + "|".join([job.name for job in jobs]) + ")$")
+    markup = [[InlineKeyboardButton(job.name, callback_data=job.name) for job in jobs]]  # Maximum length of name is 59
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("🔍 Please select a job:"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=InlineKeyboardMarkup(markup))
+    return _SELECT_JOB
+
+
+@_reset_garbage_counter
+def _perform_removal(update: Update, context: CallbackContext) -> str:
+    """Handles removal of reminder based on user input.
+
+    :param update: The update instance to handle reminder removal.
+    :param context: The CallbackContext instance to handle reminder removal.
+    :return: The _CANCEL state to go back to the reminder menu.
+    """
+
+    # region Initialisation
+
+    try:
+        assert update.callback_query.data
+        assert isinstance(context.user_data.get(_CURRENT_JOB), Job)
+    except AssertionError as error:
+        _logger.error("_perform_removal AssertionError detected while trying to initialise:\n%s", error)
+        if update.message:
+            utils.send_bug_message(update.message)
+        elif update.callback_query:
+            utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+    result = update.callback_query.data
+    update.callback_query.answer()
+
+    # endregion Initialisation
+
+    # Ensure callback data is valid
+    if TFMarkup.confirm(result) is None:
+        _logger.error("_perform_removal Invalid callback data received: %s", result)
+        utils.send_bug_message(update.callback_query.message)
+        return _STOPPING
+
+    # Handle confirmation
+    result = TFMarkup.confirm(result)
+    if result:
+        context.user_data.get(_CURRENT_JOB).schedule_removal()
+
+    # Final preparations
+    _ = context.user_data.pop(_CURRENT_JOB)
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("Job successfully removed!" if result else
+                                                                     "Removal successfully aborted!"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=InlineKeyboardMarkup([[
+                                                InlineKeyboardButton("OK", callback_data=_SET_REMINDER)]]))
+    return _CANCEL
+
+# endregion Removing job
+
+# endregion Creating reminders
 
 # region Processing form
 
@@ -815,7 +1414,7 @@ def _process_answer(update: Update, context: CallbackContext) -> str:
         text = utils.text_to_markdownv2("Are you sure you want to skip this question?"
                                         if result == BaseOptionMarkup.get_skip() or result == "/skip" else
                                         "Please confirm your answer:\n{}".format(result))
-        tf_markup = TFMarkup().get_markup()
+        tf_markup = TFMarkup.get_markup()
         if update.message:
             update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=tf_markup)
         else:
@@ -828,7 +1427,7 @@ def _process_answer(update: Update, context: CallbackContext) -> str:
 
 
 # Dynamic CallbackQueryHandler
-dynamic_callback_handler = CallbackQueryHandler(_process_answer)
+answer_handler = CallbackQueryHandler(_process_answer)
 
 
 @_reset_garbage_counter
@@ -878,7 +1477,7 @@ def _process_other(update: Update, context: CallbackContext) -> str:
 
     # Prompt for user input
     text = utils.text_to_markdownv2("Please confirm your answer:\n{}".format(result))
-    tf_markup = TFMarkup().get_markup()
+    tf_markup = TFMarkup.get_markup()
     if update.message:
         update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=tf_markup)
     else:
@@ -925,7 +1524,7 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
         processor = FormProcessor(processor, headless=True)
         context.user_data[_PROCESSOR] = processor
         start = True
-        # Check if callback query is still valid, and answer it (from main menu)
+        # Check if callback query (from main menu or scheduled job) is still valid
         try:
             update.callback_query.answer()
         except BadRequest:
@@ -944,6 +1543,8 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
             )
             processor.get_browser().close_browser()
             context.user_data[_PROCESSOR] = processor.get_browser().get_link()
+            context.user_data[_CURRENT_UPDATE] = update
+            _update_job_context(context)
             return _RETURN
         elif question is False or not isinstance(question, BaseQuestion):
             # Some error occurred
@@ -1116,7 +1717,7 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
         # Prompt user for confirmation
         update.callback_query.edit_message_text(utils.text_to_markdownv2(text),
                                                 parse_mode=ParseMode.MARKDOWN_V2,
-                                                reply_markup=TFMarkup().get_markup())
+                                                reply_markup=TFMarkup.get_markup())
         return _CONFIRM_SUBMIT
 
     # Obtain appropriate markup
@@ -1139,7 +1740,7 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
             markup = MenuMarkup(question.is_required(), isinstance(question, CheckboxQuestion), *question.get_options())
         context.user_data[_CURRENT_MARKUP] = markup
     if markup:
-        dynamic_callback_handler.pattern = re.compile(markup.get_pattern())
+        answer_handler.pattern = re.compile(markup.get_pattern())
         markup = markup.get_markup()
 
     # Prompt user for selection / input
@@ -1272,7 +1873,7 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
             utils.text_to_markdownv2("💡 SAVE ANSWER PROMPT 💡\n"
                                      "Would you like me to save your answer to this question for future submissions?"),
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=TFMarkup().get_markup()
+            reply_markup=TFMarkup.get_markup()
         )
         return _SAVE_ANSWER
 
@@ -1389,14 +1990,10 @@ def _reset(update: Update, _: CallbackContext) -> str:
     """
 
     update.callback_query.answer()
-    update.callback_query.edit_message_text(
-        utils.text_to_markdownv2(
-            "❗ Are you sure you want to RESET? ❗\n"
-            "This action is IRREVERSIBLE!"
-        ),
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=TFMarkup().get_markup()
-    )
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("⚠️ IRREVERSIBLE ACTION WARNING ⚠️\n"
+                                                                     "Are you sure you want to reset?"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=TFMarkup.get_markup())
     return _CONFIRM_RESET
 
 
@@ -1409,6 +2006,8 @@ def _confirm_reset(update: Update, context: CallbackContext) -> Union[int, str]:
     :return: The relevant state, according to whether the reset was confirmed.
     """
 
+    # region Initialisation
+
     # Sanity check
     try:
         assert update.callback_query.data
@@ -1416,11 +2015,11 @@ def _confirm_reset(update: Update, context: CallbackContext) -> Union[int, str]:
         _logger.error("AssertionError in _confirm_reset, please debug")
         if update.message:
             utils.send_bug_message(update.message)
-
-    # Initialise
     data = update.callback_query.data
     to_reset = TFMarkup.confirm(data)
     update.callback_query.answer()
+
+    # endregion Initialisation
 
     # Reset confirmed
     if to_reset is True:
@@ -1556,12 +2155,17 @@ def main() -> None:
     # region Set up second level ConversationHandler (submitting form)
 
     submit_conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(_obtain_question, pattern="^" + _OBTAIN_QUESTION + "$")],
+        entry_points=[
+            CallbackQueryHandler(_obtain_question, pattern="^" + _OBTAIN_QUESTION + "$"),
+            # TODO add handlers for answers to entry states for job to acccess
+            # MessageHandler((Filters.text & ~Filters.command) | Filters.regex("^/skip$"), _process_answer),
+            # answer_handler
+        ],
         states={
             _OBTAIN_QUESTION: [CallbackQueryHandler(_obtain_question, pattern=TFMarkup.get_pattern())],
             _SKIP_OR_ANSWER: [
                 MessageHandler((Filters.text & ~Filters.command) | Filters.regex("^/skip$"), _process_answer),
-                dynamic_callback_handler
+                answer_handler
             ],
             _ANSWER_OTHER: [MessageHandler(Filters.text & ~Filters.command, _process_other)],
             _CONFIRM_SUBMIT: [CallbackQueryHandler(_submit_answer, pattern=TFMarkup.get_pattern())],
@@ -1571,47 +2175,67 @@ def main() -> None:
         map_to_parent={
             _RETURN: _OBTAINING_LINK,
             _STOPPING: ConversationHandler.END
-        }
+        },
+        allow_reentry=True
     )
 
     # endregion Set up second level ConversationHandler (submitting form)
 
     # region Set up second level ConversationHandler (reminder menu)
 
-    # TODO set up reminder menu
     remind_conv_handler = ConversationHandler(
-        entry_points=[
-            # CallbackQueryHandler(_remind_menu, pattern="^" + _REMIND_MENU + "$")
-        ],
-        states={},
+        entry_points=[CallbackQueryHandler(_remind_menu, pattern="^" + _SET_REMINDER + "$")],
+        states={
+            _SELECTING_ACTION: [
+                CallbackQueryHandler(_select_frequency, pattern="^" + _ADD_JOB + "$"),
+                CallbackQueryHandler(_select_reminder, pattern="^" + _REMOVE_JOB + "$"),
+                CallbackQueryHandler(_remind_return, pattern="^" + _RETURN_CALLBACK_DATA + "$")
+            ],
+            _CHOOSE_FREQ: [
+                CallbackQueryHandler(_custom_frequency, pattern="^" + FreqMarkup.get_custom() + "$"),
+                CallbackQueryHandler(_fixed_frequency, pattern="^(" + "|".join((FreqMarkup.get_hourly(),
+                                                                                FreqMarkup.get_daily(),
+                                                                                FreqMarkup.get_weekly(),
+                                                                                FreqMarkup.get_monthly())) + ")$")
+            ],
+            _CUSTOM_FREQ: [CallbackQueryHandler(_handle_custom, pattern=FreqCustomMarkup.get_pattern())],
+            _SELECT_START: [CallbackQueryHandler(_start_date, pattern=DatetimeMarkup.get_pattern())],
+            _CONFIRM_ADD: [CallbackQueryHandler(_confirm_add, pattern=TFMarkup.get_pattern())],
+            _SELECT_JOB: [remind_handler],
+            _CONFIRM_REMOVE: [CallbackQueryHandler(_perform_removal, pattern=TFMarkup.get_pattern())],
+            _CANCEL: [CallbackQueryHandler(_remind_menu, pattern="^" + _SET_REMINDER + "$")]
+        },
         fallbacks=[CommandHandler("stop", _stop_nested)],
-        map_to_parent={_STOPPING: ConversationHandler.END}
+        map_to_parent={
+            _RETURN: _SELECTING_ACTION,
+            _STOPPING: ConversationHandler.END
+        },
+        allow_reentry=True
     )
 
     # endregion Set up second level ConversationHandler (reminder menu)
 
     # region Set up second level ConversationHandler (preference menu)
 
-    pref_selection_handlers = [
-        CallbackQueryHandler(_select_global_pref, pattern="^" + _EDIT_PREF_GLOBAL + "$"),
-        CallbackQueryHandler(_select_local_pref, pattern="^" + _EDIT_PREF_LOCAL + "$"),
-        CallbackQueryHandler(_pref_return, pattern="^" + _RETURN_CALLBACK_DATA + "$")
-    ]
-
     pref_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(_pref_menu, pattern="^" + _SET_PREFERENCE + "$")],
         states={
-            _SELECTING_ACTION: pref_selection_handlers,
+            _SELECTING_ACTION: [
+                CallbackQueryHandler(_select_global_pref, pattern="^" + _EDIT_PREF_GLOBAL + "$"),
+                CallbackQueryHandler(_select_local_pref, pattern="^" + _EDIT_PREF_LOCAL + "$"),
+                CallbackQueryHandler(_pref_return, pattern="^" + _RETURN_CALLBACK_DATA + "$")
+            ],
             _SELECT_QUESTION: [CallbackQueryHandler(_question_pref, pattern="^[0-9]+$")],
             _CONFIRM_PREF_GLOBAL: [CallbackQueryHandler(_confirm_global_pref, pattern=SavePrefMarkup.get_pattern())],
             _CONFIRM_PREF_LOCAL: [CallbackQueryHandler(_confirm_local_pref, pattern=SavePrefMarkup.get_pattern())],
-            _CANCEL_SAVE: [CallbackQueryHandler(_pref_menu, pattern="^" + _SET_PREFERENCE + "$")]
+            _CANCEL: [CallbackQueryHandler(_pref_menu, pattern="^" + _SET_PREFERENCE + "$")]
         },
         fallbacks=[CommandHandler("stop", _stop_nested)],
         map_to_parent={
             _RETURN: _SELECTING_ACTION,
             _STOPPING: ConversationHandler.END
-        }
+        },
+        allow_reentry=True
     )
 
     # endregion Set up second level ConversationHandler (preference menu)
@@ -1627,17 +2251,20 @@ def main() -> None:
     ]
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", _start)],
+        entry_points=[
+            CommandHandler("start", _start),
+            CallbackQueryHandler(_main_menu, pattern="^" + _RETURN_CALLBACK_DATA + "$")
+        ],
         states={
             _OBTAINING_LINK: [
-                MessageHandler(Filters.entity(MessageEntity.TEXT_LINK) | Filters.entity(MessageEntity.URL), _main_menu),
-                CallbackQueryHandler(_main_menu, pattern="^" + _RETURN_CALLBACK_DATA + "$")
+                MessageHandler(Filters.entity(MessageEntity.TEXT_LINK) | Filters.entity(MessageEntity.URL), _main_menu)
             ],
             _SELECTING_ACTION: selection_handlers,
             _CONFIRM_RESET: [CallbackQueryHandler(_confirm_reset, pattern=TFMarkup.get_pattern())],
             _STOPPING: [CommandHandler("start", _start)]  # If nested /stop issued, user has to /start again
         },
-        fallbacks=[CommandHandler("stop", _stop)]
+        fallbacks=[CommandHandler("stop", _stop)],
+        allow_reentry=True
     )
     dp.add_handler(conv_handler)
 

@@ -12,6 +12,7 @@ Usage:
 TODO include dependencies
 """
 
+from datetime import datetime
 import logging
 from markups import BaseMarkup, BaseOptionMarkup, DateMarkup, TimeMarkup
 from telegram import InlineKeyboardMarkup
@@ -35,8 +36,9 @@ class DatetimeMarkup(BaseOptionMarkup):
 
     # region Constructors
 
-    def __init__(self, required: bool, year: Optional[int] = None, month: Optional[int] = None,
-                 hour: Optional[int] = None, minute: Optional[int] = None, second: Optional[int] = None) -> None:
+    def __init__(self, required: bool, *, year: Optional[int] = None, month: Optional[int] = None,
+                 hour: Optional[int] = None, minute: Optional[int] = None, second: Optional[int] = None,
+                 from_date: Optional[datetime] = None) -> None:
         """Initialisation of DatetimeMarkup class.
 
         :param required: Flag to indicate if a response is required.
@@ -45,10 +47,11 @@ class DatetimeMarkup(BaseOptionMarkup):
         :param hour: The hour of the time picker to display.
         :param minute: The minute of the time picker to display.
         :param second: The second of the time picker to display.
+        :param from_date: The date and time to display from.
         """
 
-        self._DATE_MARKUP = DateMarkup(required, year, month)
-        self._TIME_MARKUP = TimeMarkup(required, hour, minute, second)
+        self._DATE_MARKUP = DateMarkup(required, year=year, month=month, from_date=from_date)
+        self._TIME_MARKUP = TimeMarkup(required, hour=hour, minute=minute, second=second)
         self._DATE_ANSWER = None
         super().__init__(required, disable_warnings=True)
 
@@ -106,7 +109,7 @@ class DatetimeMarkup(BaseOptionMarkup):
         """Perform action according to the callback data.
 
         :param option: The option received from the callback data.
-        :return: The relevant result, according to either the DateMarkup or TimeMarkup function.
+        :return: The relevant action as determined by the callback data.
         """
 
         if self._DATE_ANSWER:
@@ -120,6 +123,9 @@ class DatetimeMarkup(BaseOptionMarkup):
             if isinstance(result, str) and result not in (self.get_required_warning(), self._SKIP):
                 # Expecting date answer (in format %Y-%m-%d)
                 self._DATE_ANSWER = result
+                if self._DATE_MARKUP.get_from() and \
+                        datetime.strptime(result, self._DATE_MARKUP.get_format()) < self._DATE_MARKUP.get_from():
+                    self._TIME_MARKUP.set_from(self._DATE_MARKUP.get_from())
                 result = self._TIME_MARKUP.get_markup()
         return result
 

@@ -81,14 +81,15 @@ class SavePrefMarkup(BaseMarkup):
 
         return option in (cls._SAVE_ALWAYS, cls._NEVER_SAVE, cls._ASK_AGAIN)
 
-    def get_markup(self, *_) -> InlineKeyboardMarkup:
+    @classmethod
+    def get_markup(cls, *_) -> InlineKeyboardMarkup:
         """Sets the save preference options to the markup.
 
         :return: The inline keyboard markup.
         """
 
-        return super().get_markup(("✅ {}".format(self._SAVE_ALWAYS), "❌ {}".format(self._NEVER_SAVE)),
-                                  "❓ {} ❓".format(self._ASK_AGAIN))
+        return super().get_markup(("✅ {}".format(cls._SAVE_ALWAYS), "❌ {}".format(cls._NEVER_SAVE)),
+                                  "❓ {} ❓".format(cls._ASK_AGAIN))
 
 
 if __name__ == '__main__':
