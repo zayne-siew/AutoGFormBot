@@ -148,15 +148,12 @@ _F = TypeVar('_F', bound=Callable[..., Any])
     _CURRENT_QUESTION,  # For storing of processed question
     _CURRENT_ANSWER,  # For storing of user-inputted answer(s)
 
-    # For scheduling of jobs
-    _CURRENT_JOB,  # For processing of scheduled/scheduling jobs
-    _CURRENT_UPDATE,  # For storing of Google Form processing update instance
-
     # Miscellaneous
     _CURRENT_MARKUP,  # For storing of markup that is used to handle user input
     _CURRENT_PREF_KEY,  # For handling of local save preference
+    _CURRENT_JOB,  # For processing of scheduled/scheduling jobs
     _GARBAGE_INPUT_COUNTER  # For handling of unrecognised input
-) = utils.generate_random_signatures(13)
+) = utils.generate_random_signatures(12)
 
 # endregion User data constants
 
@@ -200,11 +197,11 @@ _RETURN_CALLBACK_DATA = "RETURN"
 # region Helper functions
 
 
-def _reset_garbage_counter(function: _F) -> _F:
-    """Custom decorator to reset the _GARBAGE_INPUT_COUNTER.
+def _handle_background(function: _F) -> _F:
+    """Custom decorator to handle background processes.
 
-    Entry into the parsed function indicates that the user has inputted recognised input.
-    Hence, the garbage counter (unrecognised input counter) is reset before proceeding.
+    The wrapper resets the garbage (unrecognised input) counter upon entry,
+    and updates the new update and CallbackContext instance to each scheduled job upon exit.
 
     :param function: The function that handles recognised input.
     :return: The decorated function.
@@ -212,19 +209,22 @@ def _reset_garbage_counter(function: _F) -> _F:
 
     @wraps(function)
     def _wrapper(update: Update, context: CallbackContext, *args: Any, **kwargs: Any) -> Any:
-        """Custom wrapper function to reset the _GARBAGE_INPUT_COUNTER.
+        """Custom wrapper function to handle background procecsses.
 
         Asserts that the functions that use this wrapper have the update and context parameters
         as the first two positional arguments, respectively.
 
-        :param update: The Update instance to clear the counter from.
-        :param context: The CallbackContext instance to clear the counter from.
+        :param update: The Update instance to handle background procecsses.
+        :param context: The CallbackContext instance to handle background procecsses.
         :return: The expected return value of the function.
         """
 
         if _GARBAGE_INPUT_COUNTER in context.user_data.keys() and context.user_data.get(_GARBAGE_INPUT_COUNTER) > 0:
             context.user_data[_GARBAGE_INPUT_COUNTER] = 0
-        return function(update, context, *args, **kwargs)
+        result = function(update, context, *args, **kwargs)
+        for job in context.job_queue.jobs():
+            job.context = (update, context)
+        return result
 
     return cast(_F, _wrapper)
 
@@ -252,32 +252,12 @@ def _clear_cache(context: CallbackContext, keep_save_pref: Optional[bool] = True
     if save_pref:
         context.user_data[_SAVE_PREFS] = {_GLOBAL_SAVE_PREF: save_pref}
 
-
-def _update_job_context(context: CallbackContext) -> None:
-    """Helper function to update the CallbackContext instance of all scheduled jobs.
-
-    :param context: The CallbackContext instance to use for updating.
-    """
-
-    for job in context.job_queue.jobs():
-        try:
-            update, job_context = job.context
-            assert isinstance(update, Update)
-            assert isinstance(context.user_data, dict)
-        except ValueError:
-            _logger.error("_update_job_context Job context not recognised: %s", job.context)
-            return
-        except AssertionError:
-            _logger.error("_update_job_context AssertionError detected, please debug")
-            return
-        job.context = (update, context)
-
 # endregion Helper functions
 
 # region Start functions
 
 
-@_reset_garbage_counter
+@_handle_background
 def _start(update: Update, _: CallbackContext) -> str:
     """Handles the start and reset of the bot.
 
@@ -317,7 +297,7 @@ def _start(update: Update, _: CallbackContext) -> str:
     return _OBTAINING_LINK
 
 
-@_reset_garbage_counter
+@_handle_background
 def _main_menu(update: Update, context: CallbackContext) -> str:
     """Handles the main menu.
 
@@ -412,7 +392,7 @@ def _main_menu(update: Update, context: CallbackContext) -> str:
 # region Setting preferences
 
 
-@_reset_garbage_counter
+@_handle_background
 def _pref_menu(update: Update, _: CallbackContext) -> str:
     """Handles the preference menu.
 
@@ -459,7 +439,7 @@ def _pref_menu(update: Update, _: CallbackContext) -> str:
     return _SELECTING_ACTION
 
 
-@_reset_garbage_counter
+@_handle_background
 def _select_global_pref(update: Update, context: CallbackContext) -> str:
     """Handles the selection of global preferences.
 
@@ -495,7 +475,6 @@ def _select_global_pref(update: Update, context: CallbackContext) -> str:
     return _CONFIRM_PREF_GLOBAL
 
 
-@_reset_garbage_counter
 def _confirm_global_pref(update: Update, context: CallbackContext) -> str:
     """Handles the confirmation of global preferences.
 
@@ -530,11 +509,10 @@ def _confirm_global_pref(update: Update, context: CallbackContext) -> str:
     if _GLOBAL_SAVE_PREF not in context.user_data.get(_SAVE_PREFS, {}).keys():
         context.user_data[_SAVE_PREFS] = {_GLOBAL_SAVE_PREF: None}
     context.user_data.get(_SAVE_PREFS)[_GLOBAL_SAVE_PREF] = result
-    _update_job_context(context)
     return _pref_menu(update, context)
 
 
-@_reset_garbage_counter
+@_handle_background
 def _select_local_pref(update: Update, context: CallbackContext) -> str:
     """Handles the selection of local preferences.
 
@@ -577,7 +555,7 @@ def _select_local_pref(update: Update, context: CallbackContext) -> str:
     return _SELECT_QUESTION
 
 
-@_reset_garbage_counter
+@_handle_background
 def _question_pref(update: Update, context: CallbackContext) -> str:
     """Handles the selection of save preference for a specified question.
 
@@ -650,7 +628,6 @@ def _question_pref(update: Update, context: CallbackContext) -> str:
     # endregion Formatting output
 
 
-@_reset_garbage_counter
 def _confirm_local_pref(update: Update, context: CallbackContext) -> str:
     """Handles the confirmation of local preferences.
 
@@ -687,11 +664,9 @@ def _confirm_local_pref(update: Update, context: CallbackContext) -> str:
     context.user_data.get(_SAVE_PREFS).get(_LOCAL_SAVE_PREF).get(
         context.user_data.get(_CURRENT_PREF_KEY))[_PREF_KEY] = result
     _ = context.user_data.pop(_CURRENT_PREF_KEY)
-    _update_job_context(context)
     return _pref_menu(update, context)
 
 
-@_reset_garbage_counter
 def _pref_return(update: Update, context: CallbackContext) -> str:
     """Handles returning from preference menu to main menu.
 
@@ -708,7 +683,7 @@ def _pref_return(update: Update, context: CallbackContext) -> str:
 # region Creating reminders
 
 
-@_reset_garbage_counter
+@_handle_background
 def _remind_menu(update: Update, _: CallbackContext) -> str:
     """Handles the reminder menu.
 
@@ -755,7 +730,6 @@ def _remind_menu(update: Update, _: CallbackContext) -> str:
     return _SELECTING_ACTION
 
 
-@_reset_garbage_counter
 def _remind_return(update: Update, context: CallbackContext) -> str:
     """Handles returning from reminder menu to main menu.
 
@@ -776,6 +750,7 @@ def _auto_submit(context: CallbackContext) -> None:
 
     # region Initialisation
 
+    global answer_handler
     update = None
     try:
         update, job_context = context.job.context
@@ -802,6 +777,12 @@ def _auto_submit(context: CallbackContext) -> None:
     # Attemot to auto-submit
     state = _obtain_question(update, job_context)
     if state == _STOPPING:
+        _remove_current_pointers(job_context)
+        processor = job_context.user_data.get(_PROCESSOR)
+        if isinstance(processor, FormProcessor):
+            processor.get_browser().close_browser()
+            job_context.user_data[_PROCESSOR] = processor.get_browser().get_link()
+        answer_handler.pattern = re.compile("^$")
         try:
             update.callback_query.edit_message_text(utils.text_to_markdownv2("🚨 JOB ENCOUNTERED ERROR 🚨\n"
                                                                              "Please try again later."),
@@ -814,12 +795,11 @@ def _auto_submit(context: CallbackContext) -> None:
 # region Adding job
 
 
-@_reset_garbage_counter
-def _select_frequency(update: Update, context: CallbackContext) -> str:
+@_handle_background
+def _select_frequency(update: Update, _: CallbackContext) -> str:
     """Handles selection of reminder frequency.
 
     :param update: The update instance to handle selection of reminder frequency.
-    :param context: The CallbackContext instance to handle selection of reminder frequency.
     :return: The _CHOOSE_FREQ state for further processing.
     """
 
@@ -836,21 +816,13 @@ def _select_frequency(update: Update, context: CallbackContext) -> str:
 
     # endregion Initialisation
 
-    if _CURRENT_UPDATE not in context.user_data.keys():
-        update.callback_query.edit_message_text(utils.text_to_markdownv2("⚠️ NO SUBMISSION DETECTED ⚠️\n"
-                                                                         "Please submit the form at least once first!"),
-                                                parse_mode=ParseMode.MARKDOWN_V2,
-                                                reply_markup=InlineKeyboardMarkup(
-                                                    [[InlineKeyboardButton("OK", callback_data=_SET_REMINDER)]]))
-        return _CANCEL
-    else:
-        update.callback_query.edit_message_text(utils.text_to_markdownv2("How often should this job be run?"),
-                                                parse_mode=ParseMode.MARKDOWN_V2,
-                                                reply_markup=FreqMarkup.get_markup())
-        return _CHOOSE_FREQ
+    update.callback_query.edit_message_text(utils.text_to_markdownv2("How often should this job be run?"),
+                                            parse_mode=ParseMode.MARKDOWN_V2,
+                                            reply_markup=FreqMarkup.get_markup())
+    return _CHOOSE_FREQ
 
 
-@_reset_garbage_counter
+@_handle_background
 def _fixed_frequency(update: Update, context: CallbackContext) -> str:
     """Displays menu to select start date.
 
@@ -885,7 +857,7 @@ def _fixed_frequency(update: Update, context: CallbackContext) -> str:
     return _SELECT_START
 
 
-@_reset_garbage_counter
+@_handle_background
 def _custom_frequency(update: Update, context: CallbackContext) -> str:
     """Displays menu to customise reminder frequency.
 
@@ -919,7 +891,7 @@ def _custom_frequency(update: Update, context: CallbackContext) -> str:
     return _CUSTOM_FREQ
 
 
-@_reset_garbage_counter
+@_handle_background
 def _handle_custom(update: Update, context: CallbackContext) -> str:
     """Handles reminder frequency customisation.
 
@@ -965,7 +937,7 @@ def _handle_custom(update: Update, context: CallbackContext) -> str:
     return _CUSTOM_FREQ
 
 
-@_reset_garbage_counter
+@_handle_background
 def _start_date(update: Update, context: CallbackContext) -> str:
     """Handles the selection of job start date.
 
@@ -1018,7 +990,7 @@ def _start_date(update: Update, context: CallbackContext) -> str:
     return _SELECT_START
 
 
-@_reset_garbage_counter
+@_handle_background
 def _confirm_add(update: Update, context: CallbackContext) -> str:
     """Handles confirmation of job to schedule.
 
@@ -1031,7 +1003,6 @@ def _confirm_add(update: Update, context: CallbackContext) -> str:
 
     try:
         assert update.callback_query.data
-        assert isinstance(context.user_data.get(_CURRENT_UPDATE), Update)
         job_name = context.user_data.get(_CURRENT_JOB)
         assert isinstance(job_name, str)
         freq, start = job_name.split(", starting from ")
@@ -1077,17 +1048,16 @@ def _confirm_add(update: Update, context: CallbackContext) -> str:
     if result:
         if freq == FreqMarkup.get_hourly():
             _ = context.job_queue.run_repeating(_auto_submit, 60 * 60, first=start_datetime, name=job_name,
-                                                context=(context.user_data.get(_CURRENT_UPDATE), context))
+                                                context=(update, context))
         elif freq == FreqMarkup.get_daily():
             _ = context.job_queue.run_daily(_auto_submit, start_datetime.time(), name=job_name,
-                                            context=(context.user_data.get(_CURRENT_UPDATE), context))
+                                            context=(update, context))
         elif freq == FreqMarkup.get_weekly():
             _ = context.job_queue.run_repeating(_auto_submit, 60 * 60 * 24 * 7, first=start_datetime, name=job_name,
-                                                context=(context.user_data.get(_CURRENT_UPDATE), context))
+                                                context=(update, context))
         elif freq == FreqMarkup.get_monthly():
             _ = context.job_queue.run_monthly(_auto_submit, start_datetime.time(), start_datetime.day, name=job_name,
-                                              context=(context.user_data.get(_CURRENT_UPDATE), context),
-                                              day_is_strict=False)
+                                              context=(update, context), day_is_strict=False)
         else:
             try:
                 days, hours, minutes = re.findall(r"[0-9]+", freq)
@@ -1098,8 +1068,7 @@ def _confirm_add(update: Update, context: CallbackContext) -> str:
                 utils.send_bug_message(update.callback_query.message)
                 return _STOPPING
             _ = context.job_queue.run_repeating(_auto_submit, 60 * ((int(days) * 24 + int(hours)) * 60 + int(minutes)),
-                                                first=start_datetime, name=job_name,
-                                                context=(context.user_data.get(_CURRENT_UPDATE), context))
+                                                first=start_datetime, name=job_name, context=(update, context))
 
     # Final preparations
     _ = context.user_data.pop(_CURRENT_JOB)
@@ -1115,7 +1084,7 @@ def _confirm_add(update: Update, context: CallbackContext) -> str:
 # region Removing job
 
 
-@_reset_garbage_counter
+@_handle_background
 def _confirm_removal(update: Update, context: CallbackContext) -> str:
     """Handles confirmation of removal of reminder.
 
@@ -1163,7 +1132,7 @@ def _confirm_removal(update: Update, context: CallbackContext) -> str:
 remind_handler = CallbackQueryHandler(_confirm_removal)
 
 
-@_reset_garbage_counter
+@_handle_background
 def _select_reminder(update: Update, context: CallbackContext) -> str:
     """Handles selection of scheduled reminder to remove.
 
@@ -1205,7 +1174,7 @@ def _select_reminder(update: Update, context: CallbackContext) -> str:
     return _SELECT_JOB
 
 
-@_reset_garbage_counter
+@_handle_background
 def _perform_removal(update: Update, context: CallbackContext) -> str:
     """Handles removal of reminder based on user input.
 
@@ -1318,7 +1287,7 @@ def _show_loading_screen(callback_query: CallbackQuery) -> None:
 # endregion Helper functions
 
 
-@_reset_garbage_counter
+@_handle_background
 def _process_answer(update: Update, context: CallbackContext) -> str:
     """Handler for processing user inputs.
 
@@ -1427,10 +1396,10 @@ def _process_answer(update: Update, context: CallbackContext) -> str:
 
 
 # Dynamic CallbackQueryHandler
-answer_handler = CallbackQueryHandler(_process_answer)
+answer_handler = CallbackQueryHandler(_process_answer, pattern="^$")
 
 
-@_reset_garbage_counter
+@_handle_background
 def _process_other(update: Update, context: CallbackContext) -> str:
     """Handler for processing selection for specified 'Other' option.
 
@@ -1485,7 +1454,7 @@ def _process_other(update: Update, context: CallbackContext) -> str:
     return _CONFIRM_SUBMIT
 
 
-@_reset_garbage_counter
+@_handle_background
 def _obtain_question(update: Update, context: CallbackContext, *, to_process: Optional[bool] = True) -> str:
     """Handler for obtaining Google Form questions.
 
@@ -1500,6 +1469,8 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
 
     # region Initialisation
 
+    global answer_handler
+    global confirm_handler
     try:
         assert update.callback_query
         assert _PROCESSOR in context.user_data.keys()
@@ -1543,8 +1514,7 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
             )
             processor.get_browser().close_browser()
             context.user_data[_PROCESSOR] = processor.get_browser().get_link()
-            context.user_data[_CURRENT_UPDATE] = update
-            _update_job_context(context)
+            answer_handler.pattern = re.compile("^$")
             return _RETURN
         elif question is False or not isinstance(question, BaseQuestion):
             # Some error occurred
@@ -1718,6 +1688,7 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
         update.callback_query.edit_message_text(utils.text_to_markdownv2(text),
                                                 parse_mode=ParseMode.MARKDOWN_V2,
                                                 reply_markup=TFMarkup.get_markup())
+        confirm_handler.pattern = re.compile(TFMarkup.get_pattern())
         return _CONFIRM_SUBMIT
 
     # Obtain appropriate markup
@@ -1756,7 +1727,7 @@ def _obtain_question(update: Update, context: CallbackContext, *, to_process: Op
     # endregion Display the question metadata
 
 
-@_reset_garbage_counter
+@_handle_background
 def _submit_answer(update: Update, context: CallbackContext) -> str:
     """Handler for submitting answers.
 
@@ -1770,6 +1741,7 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
 
     # region Initialisation
 
+    global confirm_handler
     try:
         assert update.callback_query.data is not None
         assert _CURRENT_ANSWER in context.user_data.keys()
@@ -1785,6 +1757,7 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
     update.callback_query.answer()
     if _CURRENT_MARKUP in context.user_data.keys():
         _ = context.user_data.pop(_CURRENT_MARKUP)
+    confirm_handler.pattern = re.compile("^$")
 
     # endregion Initialisation
 
@@ -1880,7 +1853,11 @@ def _submit_answer(update: Update, context: CallbackContext) -> str:
     # endregion Save answer
 
 
-@_reset_garbage_counter
+# Dynamic CallbackQueryHandler
+confirm_handler = CallbackQueryHandler(_submit_answer, pattern="^$")
+
+
+@_handle_background
 def _save_answer(update: Update, context: CallbackContext) -> str:
     """Confirms whether or not to save user answer.
 
@@ -1923,7 +1900,7 @@ def _save_answer(update: Update, context: CallbackContext) -> str:
 # region Terminating functions
 
 
-@_reset_garbage_counter
+@_handle_background
 def _stop_helper(update: Update, context: CallbackContext, message: str, to_return: Union[int, str]) -> Union[int, str]:
     """Helper function to completely end conversation.
 
@@ -1981,7 +1958,7 @@ def _stop_nested(update: Update, context: CallbackContext) -> str:
                                          "👋 Hope to see you again soon! 👋", _STOPPING)
 
 
-@_reset_garbage_counter
+@_handle_background
 def _reset(update: Update, _: CallbackContext) -> str:
     """Handles bot reset.
 
@@ -1997,7 +1974,7 @@ def _reset(update: Update, _: CallbackContext) -> str:
     return _CONFIRM_RESET
 
 
-@_reset_garbage_counter
+@_handle_background
 def _confirm_reset(update: Update, context: CallbackContext) -> Union[int, str]:
     """Handles bot reset confirmation.
 
@@ -2154,12 +2131,15 @@ def main() -> None:
 
     # region Set up second level ConversationHandler (submitting form)
 
+    global answer_handler
+    global confirm_handler
     submit_conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(_obtain_question, pattern="^" + _OBTAIN_QUESTION + "$"),
             # TODO add handlers for answers to entry states for job to acccess
             # MessageHandler((Filters.text & ~Filters.command) | Filters.regex("^/skip$"), _process_answer),
-            # answer_handler
+            answer_handler,
+            confirm_handler
         ],
         states={
             _OBTAIN_QUESTION: [CallbackQueryHandler(_obtain_question, pattern=TFMarkup.get_pattern())],
