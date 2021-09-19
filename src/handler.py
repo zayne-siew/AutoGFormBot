@@ -2126,7 +2126,8 @@ def main() -> None:
     """
 
     # Instantiate bot handlers
-    updater = Updater(os.environ["TELEGRAM_TOKEN"])
+    token = os.environ["TELEGRAM_TOKEN"]
+    updater = Updater(token)
     dp = updater.dispatcher
 
     # region Set up second level ConversationHandler (submitting form)
@@ -2259,7 +2260,10 @@ def main() -> None:
 
     # Start the Bot
     _logger.info("The bot has been successfully deployed!")
-    updater.start_polling()
+    updater.start_webhook(listen="0.0.0.0",
+                          port=int(os.environ.get('PORT', '8443')),
+                          url_path=token,
+                          webhook_url="https://autogformbot.herokuapp.com/" + token)
 
     # Run the bot until you press Ctrl-C or the process receives SIGINT, SIGTERM or SIGABRT.
     # This should be used most of the time, since start_polling() is non-blocking and will stop the bot gracefully.
