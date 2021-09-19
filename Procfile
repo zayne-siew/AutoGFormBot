@@ -1,1 +1,1 @@
-web: gunicorn autogformbot.wsgi
+web: python3 src/handler.py
