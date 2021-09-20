@@ -215,7 +215,8 @@ class Browser(object):
         # Initialise ChromeOptions
         options = webdriver.ChromeOptions()
         options.add_argument("-incognito")
-        options.add_argument("start-maximized")
+        # options.add_argument("start-maximized")  # This works but causes bugs in form submission on Heroku
+        options.add_argument("window-size=2560,1440")
         options.add_experimental_option("excludeSwitches", ['enable-automation', 'enable-logging'])
         options.add_argument("user-agent={}".format(UserAgent().random))
         if self._HEADLESS:
