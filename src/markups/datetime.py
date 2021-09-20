@@ -12,7 +12,7 @@ Usage:
 TODO include dependencies
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from markups import BaseMarkup, BaseOptionMarkup, DateMarkup, TimeMarkup
 from telegram import InlineKeyboardMarkup
@@ -123,8 +123,8 @@ class DatetimeMarkup(BaseOptionMarkup):
             if isinstance(result, str) and result not in (self.get_required_warning(), self._SKIP):
                 # Expecting date answer (in format %Y-%m-%d)
                 self._DATE_ANSWER = result
-                if self._DATE_MARKUP.get_from() and \
-                        datetime.strptime(result, self._DATE_MARKUP.get_format()) < self._DATE_MARKUP.get_from():
+                if self._DATE_MARKUP.get_from() and datetime.strptime(result, self._DATE_MARKUP.get_format()) \
+                        .replace(tzinfo=timezone.utc) < self._DATE_MARKUP.get_from():
                     self._TIME_MARKUP.set_from(self._DATE_MARKUP.get_from())
                 result = self._TIME_MARKUP.get_markup()
         return result

@@ -126,8 +126,8 @@ class TimeMarkup(BaseOptionMarkup):
             _logger.error("TimeMarkup _display parsing invalid minute: %d", minute)
             return False
 
-        return self._FROM is None or \
-            datetime(self._FROM.year, self._FROM.month, self._FROM.day, hour, minute) >= self._FROM
+        return self._FROM is None or datetime(self._FROM.year, self._FROM.month, self._FROM.day, hour, minute) \
+            .replace(tzinfo=timezone.utc) >= self._FROM
 
     @classmethod
     def _is_option(cls, option: str) -> bool:
