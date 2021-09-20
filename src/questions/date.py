@@ -141,6 +141,8 @@ class DateQuestion(BaseQuestion):
                  and None if _perform_submission returns None.
         """
 
+        _logger.info("Answering date question with date=%s", date)  # TODO DEBUG
+
         # Sanity checks for answer element(s)
         if (not bool(self.get_answer_elements())) or \
                 (isinstance(self._ANSWER_ELEMENTS, Tuple) and not self._is_valid(*self._ANSWER_ELEMENTS)) or \
@@ -160,6 +162,7 @@ class DateQuestion(BaseQuestion):
             _logger.error("%s trying to answer a date with date=%s", self.__class__.__name__, date)
             return False
         assert bool(isinstance(val, int) for val in (date, month, year))
+        _logger.info("Answering date question with day=%d, month=%d, year=%d", day, month, year)  # TODO DEBUG
 
         # Send instructions to Google Forms
         if isinstance(self._ANSWER_ELEMENTS, WebElement):
