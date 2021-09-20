@@ -12,7 +12,7 @@ Usage:
 TODO include dependencies
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from markups import BaseMarkup, BaseOptionMarkup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -61,7 +61,7 @@ class TimeMarkup(BaseOptionMarkup):
         """
 
         # Initialisation
-        now = datetime.now()
+        now = datetime.utcnow().replace(tzinfo=timezone.utc)
         hour = hour if hour else now.hour
         minute = minute if minute else now.minute
 

@@ -23,11 +23,10 @@ TODO include dependencies
 
 # External imports
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 import logging
 import os
-import pytz
 import random
 import re
 from telegram import (
@@ -928,7 +927,7 @@ def _handle_custom(update: Update, context: CallbackContext) -> str:
                                                 reply_markup=result)
     elif isinstance(result, str):
         context.user_data[_CURRENT_JOB] = "Submit every " + result
-        markup = DatetimeMarkup(True, from_date=datetime.now())
+        markup = DatetimeMarkup(True, from_date=datetime.utcnow().replace(tzinfo=timezone.utc))
         context.user_data[_CURRENT_MARKUP] = markup
         update.callback_query.edit_message_text(utils.text_to_markdownv2("Please select your start date and time:"),
                                                 parse_mode=ParseMode.MARKDOWN_V2,
@@ -1035,7 +1034,7 @@ def _confirm_add(update: Update, context: CallbackContext) -> str:
 
     # Ensure start date is valid
     try:
-        start_datetime = datetime.strptime(start, "%Y-%m-%d %H:%M").astimezone(pytz.utc)
+        start_datetime = datetime.strptime(start, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
     except ValueError:
         _logger.error("_confirm_add Start date not recognised: %s", start)
         utils.send_bug_message(update.callback_query.message)
@@ -2091,6 +2090,11 @@ def _error_handler(update: Update, context: CallbackContext) -> None:
 
     _logger.error("Exception while handling an update:", exc_info=context.error)
 
+    dev_id = os.environ.get("DEVELOPER_CHAT_ID")
+    if dev_id == "" or dev_id == "<Developer chat ID here>":
+        _logger.error("Developer chat ID not set!")
+        return
+
     # Format traceback and log to developer chat
     tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
     tb_string = "".join(tb_list)
@@ -2105,7 +2109,7 @@ def _error_handler(update: Update, context: CallbackContext) -> None:
               "{}".format(update_str, str(context.chat_data), str(context.user_data), tb_string)
     for i in range(0, len(message), 4096):
         context.bot.send_message(
-            chat_id=os.environ["DEVELOPER_CHAT_ID"],
+            chat_id=dev_id,
             text=utils.text_to_markdownv2(message[i:i + min(4096, len(message) - i)]),
             parse_mode=ParseMode.MARKDOWN_V2,
             disable_web_page_preview=True,
@@ -2126,7 +2130,10 @@ def main() -> None:
     """
 
     # Instantiate bot handlers
-    token = os.environ["TELEGRAM_TOKEN"]
+    token = os.environ.get("TELEGRAM_TOKEN")
+    if token == "" or token == "<Telegram bot token from BotFather here>":
+        _logger.error("Telegram token not set!")
+        return
     updater = Updater(token)
     dp = updater.dispatcher
 
@@ -2137,8 +2144,6 @@ def main() -> None:
     submit_conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(_obtain_question, pattern="^" + _OBTAIN_QUESTION + "$"),
-            # TODO add handlers for answers to entry states for job to acccess
-            # MessageHandler((Filters.text & ~Filters.command) | Filters.regex("^/skip$"), _process_answer),
             answer_handler,
             confirm_handler
         ],
@@ -2260,8 +2265,9 @@ def main() -> None:
 
     # Start the Bot
     _logger.info("The bot has been successfully deployed!")
+    # updater.start_polling()  # Uncomment this line for local testing only
     updater.start_webhook(listen="0.0.0.0",
-                          port=int(os.environ.get('PORT', '8443')),
+                          port=int(os.environ.get("PORT", "8443")),
                           url_path=token,
                           webhook_url="https://autogformbot.herokuapp.com/" + token)
 

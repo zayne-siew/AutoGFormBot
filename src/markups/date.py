@@ -40,7 +40,7 @@ TODO include dependencies
 """
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from markups import BaseMarkup, BaseOptionMarkup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -82,7 +82,7 @@ class DateMarkup(BaseOptionMarkup):
 
         # Initialisation
         calendar.setfirstweekday(calendar.SUNDAY)
-        now = datetime.now()
+        now = datetime.utcnow().replace(tzinfo=timezone.utc)
         year = year if year else now.year
         month = month if month else now.month
         self._FROM = from_date

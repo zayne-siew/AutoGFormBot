@@ -18,19 +18,13 @@ TODO include dependencies
 from fake_useragent import UserAgent
 from functools import wraps
 import logging
+import os
 from selenium import webdriver
-from selenium.common.exceptions import (
-    ElementNotInteractableException,
-    InvalidSessionIdException,
-    NoSuchElementException,
-    StaleElementReferenceException,
-    TimeoutException,
-    WebDriverException
-)
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.chrome.webdriver import WebDriver
 import time
 from typing import Any, Callable, Optional, TypeVar, cast
-from webdriver_manager.chrome import ChromeDriverManager
+# from webdriver_manager.chrome import ChromeDriverManager  # Uncomment this line for local testing only
 
 # region Define constants
 
@@ -156,8 +150,7 @@ class Browser(object):
                     result = function(*args, **kwargs)
                     passed = True
 
-                except (ElementNotInteractableException, InvalidSessionIdException, NoSuchElementException,
-                        StaleElementReferenceException, TimeoutException, WebDriverException):
+                except WebDriverException:
                     _logger.warning("An exception while using selenium library functions has been detected")
 
                     # Case 1: args[0] is the current Browser object
@@ -215,17 +208,26 @@ class Browser(object):
         # Initialise ChromeOptions
         options = webdriver.ChromeOptions()
         options.add_argument("-incognito")
-        # options.add_argument("start-maximized")  # This works but causes bugs in form submission on Heroku
-        options.add_argument("window-size=2560,1440")
+        options.add_argument("start-maximized")
         options.add_experimental_option("excludeSwitches", ['enable-automation', 'enable-logging'])
         options.add_argument("user-agent={}".format(UserAgent().random))
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
         if self._HEADLESS:
             options.add_argument("--headless")
-            options.add_argument("disable-gpu")
+
+        # Comment out this section for local testing only
+        options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/app/.apt/usr/bin/google_chrome")
+        if "GOOGLE_CHROME_BIN" not in os.environ.keys():
+            _logger.warning("GOOGLE_CHROME_BIN PATH variable not set!")
+        executable_path = os.environ.get("CHROMEDRIVER_PATH", "/app/.chromedriver/bin/chromedriver")
+        if "CHROMEDRIVER_PATH" not in os.environ.keys():
+            _logger.warning("CHROMEDRIVER_PATH PATH variable not set!")
 
         # Initialise browser with link
-        self._BROWSER = webdriver.Chrome(executable_path=ChromeDriverManager(print_first_line=False).install(),
-                                         options=options)
+        # self._BROWSER = webdriver.Chrome(executable_path=ChromeDriverManager(print_first_line=False).install(),
+        #                                  options=options)  # Uncomment for local testing only
+        self._BROWSER = webdriver.Chrome(executable_path=executable_path, options=options)
         self._BROWSER.get(self._LINK)
         self._BROWSER.implicitly_wait(self._IMPLICIT_WAIT)
 
