@@ -850,7 +850,9 @@ def _fixed_frequency(update: Update, context: CallbackContext) -> str:
 
     markup = DatetimeMarkup(True, from_date=datetime.now())
     context.user_data[_CURRENT_MARKUP] = markup
-    update.callback_query.edit_message_text(utils.text_to_markdownv2("Please select your start date and time:"),
+    update.callback_query.edit_message_text(utils.text_to_markdownv2(
+        "Please select your start date and time.\n"
+        "NOTE: Convert your time into UTC and select that time below."),
                                             parse_mode=ParseMode.MARKDOWN_V2,
                                             reply_markup=markup.get_markup())
     return _SELECT_START
@@ -929,7 +931,9 @@ def _handle_custom(update: Update, context: CallbackContext) -> str:
         context.user_data[_CURRENT_JOB] = "Submit every " + result
         markup = DatetimeMarkup(True, from_date=datetime.utcnow().replace(tzinfo=timezone.utc))
         context.user_data[_CURRENT_MARKUP] = markup
-        update.callback_query.edit_message_text(utils.text_to_markdownv2("Please select your start date and time:"),
+        update.callback_query.edit_message_text(utils.text_to_markdownv2(
+            "Please select your start date and time.\n"
+            "NOTE: Convert your time into UTC and select that time below."),
                                                 parse_mode=ParseMode.MARKDOWN_V2,
                                                 reply_markup=markup.get_markup())
         return _SELECT_START
@@ -2090,7 +2094,7 @@ def _error_handler(update: Update, context: CallbackContext) -> None:
 
     _logger.error("Exception while handling an update:", exc_info=context.error)
 
-    dev_id = os.environ.get("DEVELOPER_CHAT_ID")
+    dev_id = os.environ.get("DEVELOPER_CHAT_ID", "")
     if dev_id == "" or dev_id == "<Developer chat ID here>":
         _logger.error("Developer chat ID not set!")
         return
@@ -2130,7 +2134,7 @@ def main() -> None:
     """
 
     # Instantiate bot handlers
-    token = os.environ.get("TELEGRAM_TOKEN")
+    token = os.environ.get("TELEGRAM_TOKEN", "")
     if token == "" or token == "<Telegram bot token from BotFather here>":
         _logger.error("Telegram token not set!")
         return
