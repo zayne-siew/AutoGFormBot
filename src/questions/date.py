@@ -169,11 +169,9 @@ class DateQuestion(BaseQuestion):
             action = ActionChains(self.get_browser().get_browser())
             # Must use move to element with offset, otherwise this wont work
             # TODO somehow this is not working on Heroku >:(
-            key = "{:02d}{:02d}{:04d}".format(day, month, year)
-            _logger.info("DateMarkup sending key %s", key)
             action.move_to_element_with_offset(self._ANSWER_ELEMENTS, 0, 0) \
                   .click() \
-                  .send_keys(key) \
+                  .send_keys("{:02d}{:02d}{:04d}".format(day, month, year)) \
                   .perform()
         else:
             for element, answer in zip(self._ANSWER_ELEMENTS, (month, day)):
