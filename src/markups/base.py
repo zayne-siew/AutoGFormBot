@@ -6,8 +6,6 @@ This script standardises the initialisation of a custom reusable inline keyboard
 
 Usage:
     This script should not be used directly, other than its base class functionalities.
-
-TODO include dependencies
 """
 
 import logging

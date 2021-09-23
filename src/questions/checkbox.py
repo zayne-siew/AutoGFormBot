@@ -11,8 +11,6 @@ Usage:
     To answer the question:
         CheckboxQuestion.answer(*answers)
         CheckboxGridQuestion.answer(*answers)
-
-TODO include dependencies
 """
 
 from browser import Browser

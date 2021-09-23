@@ -11,8 +11,6 @@ Usage:
     To answer the question:
         RadioQuestion.answer(answer)
         RadioGridQuestion.answer(*answers)
-
-TODO include dependencies
 """
 
 from browser import Browser

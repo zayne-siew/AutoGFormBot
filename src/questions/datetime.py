@@ -8,8 +8,6 @@ Usage:
     To get question metadata while checking for success/failure: if not DatetimeQuestion.get_info(): ...
     To answer the question: DatetimeQuestion.answer(hour, minute, date=date) OR
                             DateQuestion.answer(hour, minute, month=month, day=day)
-
-TODO include dependencies
 """
 
 from browser import Browser

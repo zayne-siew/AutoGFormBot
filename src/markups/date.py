@@ -35,8 +35,6 @@ Usage:
     To obtain the pattern regex for CallbackQueryHandlers: DateMarkup.get_pattern()
     To initialise a date picker keyboard markup: markup.get_markup()
     To process the callback data obtained: markup.perform_action(option)
-
-TODO include dependencies
 """
 
 import calendar

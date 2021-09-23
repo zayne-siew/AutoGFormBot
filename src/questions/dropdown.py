@@ -7,8 +7,6 @@ This script allows for the standardised handling of the Google Form drop-down qu
 Usage:
     To get question metadata while checking for success/failure: if not DropdownQuestion.get_info(): ...
     To answer the question: DropdownQuestion.answer(answer)
-
-TODO include dependencies
 """
 
 from browser import Browser

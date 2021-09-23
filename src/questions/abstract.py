@@ -6,8 +6,6 @@ This script serves as an interface for documenting function implementation.
 
 Usage:
     This script should not be used directly, other than its ABC functionalities.
-
-TODO include dependencies
 """
 
 from abc import ABC, abstractmethod

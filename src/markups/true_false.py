@@ -10,8 +10,6 @@ Usage:
     To obtain the pattern regex for CallbackQueryHandlers: TFMarkup.get_pattern()
     To initialise a true/false keyboard markup: markup.get_markup(pos, neg)
     To determine true/false: TFMarkup.confirm(value)
-
-TODO include dependencies
 """
 
 import logging

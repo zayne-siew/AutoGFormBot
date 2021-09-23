@@ -8,8 +8,6 @@ Usage:
     To obtain the pattern regex for CallbackQueryHandlers: markup.get_pattern()
     To initialise a menu keyboard markup: markup.get_markup()
     To process the callback data obtained: markup.perform_action(option)
-
-TODO include dependencies
 """
 
 import logging

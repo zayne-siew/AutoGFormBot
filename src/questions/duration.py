@@ -7,8 +7,6 @@ This script allows for the standardised handling of the Google Form duration que
 Usage:
     To get question metadata while checking for success/failure: if not DurationQuestion.get_info(): ...
     To answer the question: DurationQuestion.answer(hour, minute, second)
-
-TODO include dependencies
 """
 
 from browser import Browser

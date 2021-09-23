@@ -6,17 +6,13 @@ This script provides the mainframe to the Telegram bot interface.
 The bot handles user-supervised auto-submission of Google Forms, along with other scheduling and customisation options.
 
 Functionalities of the Telegram bot, in detail, include:
-    - TODO Wrapper interface for Google Forms, for users to submit forms via the bot.
-    - TODO Remembers answers for future auto-submission of forms.
-    - TODO Scheduling of form auto-submission, up to 30-minute intervals.
-    - TODO Backlogs past submissions for users to view and keep track.
-    - TODO Allows users submitting the same form to keep track of one another's submissions.
+    - Wrapper interface for Google Forms, for users to submit forms via the bot.
+    - Remembers answers for future auto-submission of forms.
+    - Scheduling of form auto-submission, up to 30-minute intervals.
 
 This script works in tandem with processor.py to automate Google Form submissions.
 This script uses custom-built inline keyboard markup templates under the ./markups directory.
 This script uses custom classes as representations of Google Form questions under the ./questions directory.
-
-TODO include dependencies
 """
 
 # region Imports

@@ -6,8 +6,6 @@ This script standardises the initialisation and base functionality of a question
 
 Usage:
     This script should not be used directly, other than its base class functionalities.
-
-TODO include dependencies
 """
 
 from browser import Browser

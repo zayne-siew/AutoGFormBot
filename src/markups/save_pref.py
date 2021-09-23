@@ -11,8 +11,6 @@ Usage:
     To check which pre-defined option is selected: option == SavePrefMarkup.get_save_always() OR
                                                    option == SavePrefMarkup.get_never_save() OR
                                                    option == SavePrefMarkup.get_ask_again()
-
-TODO include dependencies
 """
 
 from markups import BaseMarkup

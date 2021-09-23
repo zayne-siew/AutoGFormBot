@@ -7,8 +7,6 @@ This script allows for the standardised handling of the Google Form date questio
 Usage:
     To get question metadata while checking for success/failure: if not DateQuestion.get_info(): ...
     To answer the question: DateQuestion.answer(date=date) OR DateQuestion.answer(month=month, day=day)
-
-TODO include dependencies
 """
 
 from browser import Browser
@@ -168,9 +166,11 @@ class DateQuestion(BaseQuestion):
             action = ActionChains(self.get_browser().get_browser())
             # Must use move to element with offset, otherwise this wont work
             # TODO somehow this is not working on Heroku >:(
+            key = "{:02d}{:02d}{:04d}".format(day, month, year)
+            _logger.info("DateMarkup sending key %s", key)
             action.move_to_element_with_offset(self._ANSWER_ELEMENTS, 0, 0) \
                   .click() \
-                  .send_keys("{:02d}{:02d}{:04d}".format(day, month, year)) \
+                  .send_keys(key) \
                   .perform()
         else:
             for element, answer in zip(self._ANSWER_ELEMENTS, (month, day)):

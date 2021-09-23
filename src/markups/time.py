@@ -8,8 +8,6 @@ Usage:
     To obtain the pattern regex for CallbackQueryHandlers: TimeMarkup.get_pattern()
     To initialise a time picker keyboard markup: markup.get_markup()
     To process the callback data obtained: markup.perform_action(option)
-
-TODO include dependencies
 """
 
 from datetime import datetime, timezone

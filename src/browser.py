@@ -11,8 +11,6 @@ Usage:
     Getter methods are documented in the Browser class.
     Decorate functions that use selenium-based functions with @Browser.monitor_browser.
     To close the browser: browser.close_browser()
-
-TODO include dependencies
 """
 
 from fake_useragent import UserAgent

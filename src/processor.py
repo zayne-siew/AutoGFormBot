@@ -9,8 +9,6 @@ For more details on the functionality of this script, please view the documentat
 
 This script works in tandem with handler.py to provide a user interface for users to submit Google Forms.
 This script uses custom classes as representations of Google Form questions under the ./questions directory.
-
-TODO include dependencies
 """
 
 # region Imports
