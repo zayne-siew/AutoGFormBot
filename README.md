@@ -10,7 +10,7 @@ What started out as a simple project to submit temperatures to Google Forms via 
 - Customisability: Save answers and set submission times based on your preference.
 
 ## How to Use
-You can find the AutoGFormBot on the Telegram app at https://t.me/temperature_record_bot.
+You can find the AutoGFormBot on the Telegram app at https://t.me/autogformbot.
 
 Due to limitations of deploying onto Heroku for free, the bot may take up to 20 seconds to respond initially. Hence, please be patient with it.
 
