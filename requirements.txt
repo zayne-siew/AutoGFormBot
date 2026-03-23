@@ -9,7 +9,7 @@ idna==3.2
 more-itertools==8.9.0
 python-dotenv==0.19.0
 python-telegram-bot==13.7
-requests==2.26.0
+requests==2.32.4
 selenium==3.141.0
 six==1.16.0
 tornado==6.5.5
